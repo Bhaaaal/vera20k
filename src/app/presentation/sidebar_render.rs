@@ -127,8 +127,16 @@ pub(crate) fn refresh_sidebar_projection(state: &mut AppState) {
     );
     #[cfg(not(feature = "phobos"))]
     let gdi_positions = theme == crate::render::sidebar_chrome::SidebarTheme::Allied;
-    let mut spec =
-        crate::ui::sidebar::SidebarChromeLayoutSpec::for_theme_and_positions(theme, gdi_positions);
+    // The frame's column width picks the layout: the widened modern column uses
+    // the three-column grid, captures keep the native two-column grid so
+    // gamemd comparisons are unaffected. Both read the same chrome atlas.
+    let modern =
+        state.sidebar_frame().sidebar_width() == crate::ui::sidebar::MODERN_SIDEBAR_WIDTH_PX;
+    let mut spec = if modern {
+        crate::ui::sidebar::SidebarChromeLayoutSpec::modern_three_column(theme, gdi_positions)
+    } else {
+        crate::ui::sidebar::SidebarChromeLayoutSpec::for_theme_and_positions(theme, gdi_positions)
+    };
     if let Some(atlas) = current_sidebar_chrome(state) {
         spec.side2_height = atlas.side2.pixel_size[1];
         spec.side3_height = atlas.side3.pixel_size[1];

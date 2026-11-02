@@ -18,7 +18,7 @@ mod sidebar_view;
 
 use crate::sim::production::ProductionCategory;
 
-pub use frame::{BOTTOM_STRIP_HEIGHT_PX, SIDEBAR_WIDTH_PX, SidebarFrame};
+pub use frame::{BOTTOM_STRIP_HEIGHT_PX, MODERN_SIDEBAR_WIDTH_PX, SIDEBAR_WIDTH_PX, SidebarFrame};
 pub use layout_spec::{SidebarChromeLayoutSpec, SidebarTheme};
 pub use power_bar_anim::PowerBarAnimState;
 pub(crate) use sidebar_view::ArmedSidebarEntry;
@@ -26,7 +26,8 @@ pub(crate) use sidebar_view::build_sidebar_view_with_spec;
 pub(crate) use sidebar_view::{CameoFactoryStatus, ObjectCameoDrawInputs, draw_object_cameo};
 
 /// Cameo hit zones are fixed 60×48 (`6A8220`), independent of artwork size.
-pub(crate) const CAMEO_COLUMNS: usize = 2;
+/// The number of columns is now carried by [`SidebarChromeLayoutSpec`] so the
+/// native 2-column and modern 3-column grids share one layout path.
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rect {
