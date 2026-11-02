@@ -108,8 +108,8 @@ impl ArmedSidebarEntry {
     }
 }
 use super::{
-    CAMEO_COLUMNS, Rect, SidebarAction, SidebarChromeLayoutSpec, SidebarItem, SidebarScrollButton,
-    SidebarTab, SidebarTabButton, SidebarToggleButton, SidebarView, compute_layout_with_spec,
+    Rect, SidebarAction, SidebarChromeLayoutSpec, SidebarItem, SidebarScrollButton, SidebarTab,
+    SidebarTabButton, SidebarToggleButton, SidebarView, compute_layout_with_spec,
     scroll_button_rects,
 };
 
@@ -218,7 +218,7 @@ pub(crate) fn build_sidebar_view_with_spec(
     let scroll_rows = cameo_order.scroll_row(active_tab);
     let mut all_entries = std::mem::take(&mut strips[active_tab.tab_index()]);
     let total_items = all_entries.len();
-    let total_rows = total_items.div_ceil(CAMEO_COLUMNS);
+    let total_rows = total_items.div_ceil(layout_spec.cameo_columns);
 
     // Native screen capacity is independent of the item count.
     let layout = compute_layout_with_spec(layout_spec, screen_w, screen_h, total_rows);
@@ -292,7 +292,7 @@ pub(crate) fn build_sidebar_view_with_spec(
     );
     // Ordinary local-player branch of 6A6610: both arrows share capacity
     // availability, independent of the current end position.
-    let scroll_disabled = total_items <= layout.side2_tile_count * CAMEO_COLUMNS;
+    let scroll_disabled = total_items <= layout.side2_tile_count * layout_spec.cameo_columns;
     let top_buttons = std::array::from_fn(|i| {
         let [w, h] = top_button_sizes[i].unwrap_or([0.0, 0.0]);
         SidebarScrollButton {
@@ -324,16 +324,16 @@ pub(crate) fn build_sidebar_view_with_spec(
     let max_scroll_rows = total_rows.saturating_sub(visible_rows);
     let scroll_rows = scroll_rows.min(max_scroll_rows);
 
-    let visible_items = scroll_rows * CAMEO_COLUMNS;
-    let max_visible = visible_rows * CAMEO_COLUMNS;
+    let visible_items = scroll_rows * layout_spec.cameo_columns;
+    let max_visible = visible_rows * layout_spec.cameo_columns;
     let items: Vec<SidebarItem> = all_entries
         .drain(..)
         .skip(visible_items)
         .take(max_visible)
         .enumerate()
         .map(|(idx, entry)| {
-            let row = idx / CAMEO_COLUMNS;
-            let col = idx % CAMEO_COLUMNS;
+            let row = idx / layout_spec.cameo_columns;
+            let col = idx % layout_spec.cameo_columns;
             let x = (layout.sidebar_x
                 + layout_spec.cameo_inset_x
                 + col as f32 * (layout_spec.cameo_width + layout_spec.cameo_gap_x))

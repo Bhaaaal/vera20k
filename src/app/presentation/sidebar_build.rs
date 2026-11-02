@@ -71,16 +71,40 @@ pub fn build_sidebar_chrome_instances_for_layout(
     let cx = layout.sidebar_x;
     // RadarClass::Draw 653100 and DrawCreditsSHPBackground 6D0E60.
     if let Some(top) = atlas.top_strip_sidebar {
-        push_chrome(&mut inst, top, cx, 16.0, d, camera_offset);
+        push_chrome_full_width(
+            &mut inst,
+            top,
+            cx,
+            16.0,
+            spec.sidebar_width,
+            d,
+            camera_offset,
+        );
     }
     if let Some(credits) = atlas.top_strip_thin {
-        push_chrome(&mut inst, credits, cx, 0.0, d, camera_offset);
+        push_chrome_full_width(
+            &mut inst,
+            credits,
+            cx,
+            0.0,
+            spec.sidebar_width,
+            d,
+            camera_offset,
+        );
     }
 
     if static_radar_fallback {
         push_chrome(&mut inst, atlas.radar, cx, layout.radar_y, d, camera_offset);
     }
-    push_chrome(&mut inst, atlas.side1, cx, layout.side1_y, d, camera_offset);
+    push_chrome_full_width(
+        &mut inst,
+        atlas.side1,
+        cx,
+        layout.side1_y,
+        spec.sidebar_width,
+        d,
+        camera_offset,
+    );
     let td = d - 0.00001;
     for tab_btn in tabs {
         let idx = tab_btn.tab.tab_index();
@@ -102,15 +126,32 @@ pub fn build_sidebar_chrome_instances_for_layout(
     // loaded canvas height. SIDE3 and ADDON follow the last actual tile.
     for row in 0..layout.side2_tile_count {
         let y = layout.cameo_grid_top + row as f32 * atlas.side2.pixel_size[1];
-        push_chrome(&mut inst, atlas.side2, cx, y, d, camera_offset);
+        push_chrome_full_width(
+            &mut inst,
+            atlas.side2,
+            cx,
+            y,
+            spec.sidebar_width,
+            d,
+            camera_offset,
+        );
     }
-    push_chrome(&mut inst, atlas.side3, cx, layout.side3_y, d, camera_offset);
+    push_chrome_full_width(
+        &mut inst,
+        atlas.side3,
+        cx,
+        layout.side3_y,
+        spec.sidebar_width,
+        d,
+        camera_offset,
+    );
     if let Some(addon) = atlas.unknown_top_housing {
-        push_chrome(
+        push_chrome_full_width(
             &mut inst,
             addon,
             cx,
             layout.side3_y + atlas.side3.pixel_size[1],
+            spec.sidebar_width,
             d,
             camera_offset,
         );
@@ -279,6 +320,34 @@ fn push_chrome_sized(
     instances.push(SpriteInstance {
         position: [x + camera_offset[0], y + camera_offset[1]],
         size,
+        uv_origin: entry.uv_origin,
+        uv_size: entry.uv_size,
+        depth,
+        tint: [1.0, 1.0, 1.0],
+        alpha: 1.0,
+        ..Default::default()
+    });
+}
+
+/// Stage-1 bridge: stretch a full-column chrome strip horizontally to fill the
+/// widened modern sidebar. The retail chrome art is 168 px wide, so the strip
+/// is uniformly scaled to `width`; the visual stage replaces this with proper
+/// wide chrome art (or a 9-slice of the reused art).
+fn push_chrome_full_width(
+    instances: &mut Vec<SpriteInstance>,
+    entry: crate::render::sidebar_chrome::SidebarChromeEntry,
+    x: f32,
+    y: f32,
+    width: f32,
+    depth: f32,
+    camera_offset: [f32; 2],
+) {
+    if width <= 0.0 || entry.pixel_size[1] <= 0.0 {
+        return;
+    }
+    instances.push(SpriteInstance {
+        position: [x + camera_offset[0], y + camera_offset[1]],
+        size: [width, entry.pixel_size[1]],
         uv_origin: entry.uv_origin,
         uv_size: entry.uv_size,
         depth,

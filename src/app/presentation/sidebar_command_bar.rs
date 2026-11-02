@@ -13,7 +13,7 @@ pub(crate) fn layout_and_slots(state: &AppState) -> Option<(CommandBarLayout, Ve
     let (width, height) = state.sidebar_frame().layout_size();
     let layout = CommandBarLayout::new(
         [width, height],
-        crate::ui::sidebar::SIDEBAR_WIDTH_PX,
+        state.sidebar_frame().sidebar_width(),
         size(art.left_cap[0]?),
         size(art.background?),
         size(art.right_cap?),

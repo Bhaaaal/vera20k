@@ -18,6 +18,12 @@ use super::Rect;
 /// The sidebar column's native width (`6A5090`), in sidebar pixels.
 pub const SIDEBAR_WIDTH_PX: u32 = 168;
 
+/// The CNC3-style widened sidebar column, in sidebar pixels. The live in-game
+/// frame uses this width; captures keep the native [`SIDEBAR_WIDTH_PX`] for
+/// gamemd comparison. `SidebarChromeLayoutSpec::modern_three_column` lays the
+/// three cameo columns out against this width.
+pub const MODERN_SIDEBAR_WIDTH_PX: u32 = 220;
+
 /// Stock YR reserves the right sidebar and a fixed 32-pixel bottom strip, the
 /// command bar's, when it builds the tactical view rectangle. In sidebar
 /// pixels.
@@ -29,20 +35,41 @@ pub struct SidebarFrame {
     frame_height: u32,
     /// Frame pixels per 100 sidebar pixels: 100 at Normal.
     percent: u32,
+    /// The sidebar column's width in sidebar pixels. Native frames use
+    /// [`SIDEBAR_WIDTH_PX`]; the modern in-game frame uses
+    /// [`MODERN_SIDEBAR_WIDTH_PX`].
+    sidebar_width: u32,
 }
 
 impl SidebarFrame {
     pub fn new(frame_width: u32, frame_height: u32, percent: u32) -> Self {
+        Self::with_sidebar_width(frame_width, frame_height, percent, SIDEBAR_WIDTH_PX)
+    }
+
+    /// The same frame with an explicit sidebar column width (e.g. the widened
+    /// modern column).
+    pub fn with_sidebar_width(
+        frame_width: u32,
+        frame_height: u32,
+        percent: u32,
+        sidebar_width: u32,
+    ) -> Self {
         Self {
             frame_width,
             frame_height,
             percent: percent.max(100),
+            sidebar_width: sidebar_width.max(1),
         }
     }
 
     /// The native size, Normal: what captures and native comparisons use.
     pub fn native(frame_width: u32, frame_height: u32) -> Self {
         Self::new(frame_width, frame_height, 100)
+    }
+
+    /// The sidebar column's width in sidebar pixels.
+    pub fn sidebar_width(self) -> u32 {
+        self.sidebar_width
     }
 
     /// Frame pixels per sidebar pixel.
@@ -55,9 +82,9 @@ impl SidebarFrame {
         self.percent.is_multiple_of(100)
     }
 
-    /// The column's width in frame pixels: 168 at Normal.
+    /// The column's width in frame pixels: `sidebar_width` at Normal.
     pub fn width_in_frame(self) -> u32 {
-        SIDEBAR_WIDTH_PX * self.percent / 100
+        self.sidebar_width * self.percent / 100
     }
 
     /// The bottom strip's height in frame pixels: 32 at Normal.
@@ -96,7 +123,7 @@ impl SidebarFrame {
 
     /// Layout-space x of the column's left edge.
     pub fn layout_left(self) -> f32 {
-        self.layout_size().0 as f32 - SIDEBAR_WIDTH_PX as f32
+        self.layout_size().0 as f32 - self.sidebar_width as f32
     }
 
     /// Layout-space y of the strip's top edge.
@@ -104,17 +131,20 @@ impl SidebarFrame {
         self.layout_size().1 as f32 - BOTTOM_STRIP_HEIGHT_PX as f32
     }
 
-    /// The sidebar's surface in its own pixels: the column's native width and
-    /// the layout's height.
+    /// The sidebar's surface in its own pixels: the column's width and the
+    /// layout's height.
     pub fn surface_size(self) -> (u32, u32) {
-        (SIDEBAR_WIDTH_PX, self.layout_size().1)
+        (self.sidebar_width, self.layout_size().1)
     }
 
     /// The bar's surface in its own pixels: the layout's width left of the
     /// column, and the strip's native height.
     pub fn bar_surface_size(self) -> (u32, u32) {
         (
-            self.layout_size().0.saturating_sub(SIDEBAR_WIDTH_PX).max(1),
+            self.layout_size()
+                .0
+                .saturating_sub(self.sidebar_width)
+                .max(1),
             BOTTOM_STRIP_HEIGHT_PX,
         )
     }
@@ -313,5 +343,18 @@ mod tests {
         assert_eq!(large.pixel_to_layout(1, 1), (1, 1));
         assert_eq!(large.pixel_to_layout(2, 2), (1, 1));
         assert_eq!(large.pixel_to_layout(3, 3), (2, 2));
+    }
+
+    #[test]
+    fn modern_sidebar_width_widens_the_column_and_shrinks_the_battlefield() {
+        let frame = SidebarFrame::with_sidebar_width(800, 600, 100, MODERN_SIDEBAR_WIDTH_PX);
+        assert_eq!(frame.sidebar_width(), 220);
+        assert_eq!(frame.width_in_frame(), 220);
+        assert_eq!(frame.column(), (580, 0, 220, 600));
+        assert_eq!(frame.strip(), (0, 568, 580, 32));
+        assert_eq!(frame.tactical_size(), (580, 568));
+        assert_eq!(frame.surface_size(), (220, 600));
+        assert_eq!(frame.bar_surface_size(), (580, 32));
+        assert_eq!(frame.layout_left(), 580.0);
     }
 }

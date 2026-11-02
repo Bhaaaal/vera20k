@@ -105,7 +105,10 @@ impl AppState {
         width: u32,
         height: u32,
     ) -> crate::ui::sidebar::SidebarFrame {
-        let percent = if self.platform.capture_client_size.is_some() {
+        // Captures keep the native column so gamemd comparisons are unaffected;
+        // the live frame uses the widened CNC3-style column.
+        let capture = self.platform.capture_client_size.is_some();
+        let percent = if capture {
             100
         } else {
             self.persistence
@@ -113,7 +116,12 @@ impl AppState {
                 .sidebar
                 .percent(width, height)
         };
-        crate::ui::sidebar::SidebarFrame::new(width, height, percent)
+        let sidebar_width = if capture {
+            crate::ui::sidebar::SIDEBAR_WIDTH_PX
+        } else {
+            crate::ui::sidebar::MODERN_SIDEBAR_WIDTH_PX
+        };
+        crate::ui::sidebar::SidebarFrame::with_sidebar_width(width, height, percent, sidebar_width)
     }
 
     /// The zoom pass a match frame goes through: the battlefield and the
