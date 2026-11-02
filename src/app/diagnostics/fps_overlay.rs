@@ -1,16 +1,26 @@
-//! Final-window FPS readout, hidden at every launch until Ctrl+Alt+F or the
-//! Options page's FPS Counter box shows it.
+//! Final-window text overlays: the FPS readout (hidden at every launch until
+//! Ctrl+Alt+F or the Options page's FPS Counter box shows it), the network
+//! status line, and the test HUD's bottom-left block.
 //! Independent of tactical cameras, optional dev overlays, retail fonts, and
 //! shell/offscreen composition.
 
-use std::sync::Mutex;
 use crate::util::time::Instant;
+use std::sync::Mutex;
 
 use crate::render::batch::{BatchRenderer, CameraUniform, InstanceBufferPool};
 use crate::render::bit_font::BitFont;
 use crate::render::gpu::GpuContext;
 
 use super::state::FrameTimer;
+
+/// Left inset of every window-fixed text block, in window pixels.
+const WINDOW_LEFT: f32 = 8.0;
+/// Baseline distance between two lines of window-fixed text.
+const HUD_LINE_HEIGHT: f32 = 20.0;
+/// Gap between the window's bottom edge and a bottom-anchored block; the test
+/// HUD's block is the only thing that anchors to the bottom edge.
+#[cfg(feature = "dev-overlays")]
+const HUD_BOTTOM_MARGIN: f32 = 12.0;
 
 pub(crate) struct FpsOverlay {
     visible: bool,
@@ -97,8 +107,46 @@ impl FpsOverlay {
             destination,
             &mut frame,
             &text,
-            8.0,
+            [WINDOW_LEFT, 8.0],
+            u32::MAX,
             "window_fps",
+        );
+    }
+
+    /// Draw one block of text against the window's bottom-left corner, in
+    /// window pixels, through the same font, camera and pass the readouts use.
+    ///
+    /// The block grows upward from `HUD_BOTTOM_MARGIN`, so the lines the caller
+    /// adds later never move the ones already shown. Nothing here reads the
+    /// camera: the overlay keeps its size and place at every zoom, which is what
+    /// the test HUD wants.
+    #[cfg(feature = "dev-overlays")]
+    pub(crate) fn encode_bottom_left(
+        &self,
+        gpu: &GpuContext,
+        batch: &BatchRenderer,
+        encoder: &mut wgpu::CommandEncoder,
+        destination: &wgpu::Texture,
+        text: &str,
+        key: &'static str,
+    ) {
+        let width = destination.width();
+        let height = destination.height();
+        let wrap = width.saturating_sub(2 * WINDOW_LEFT as u32);
+        // Line count decides the block's top; the encoder re-lays the same text.
+        let lines = self.font.wrap_layout(text, wrap).lines.len() as f32;
+        let top = ((height as f32) - HUD_BOTTOM_MARGIN - lines * HUD_LINE_HEIGHT).max(0.0);
+        let mut frame = self.frame.lock().expect("FPS overlay frame lock");
+        self.encode_text(
+            gpu,
+            batch,
+            encoder,
+            destination,
+            &mut frame,
+            text,
+            [WINDOW_LEFT, top],
+            wrap,
+            key,
         );
     }
 
@@ -113,6 +161,7 @@ impl FpsOverlay {
         text: &str,
     ) {
         let mut frame = self.frame.lock().expect("window status overlay frame lock");
+        let wrap = destination.width().saturating_sub(2 * WINDOW_LEFT as u32) / 2;
         self.encode_text(
             gpu,
             batch,
@@ -120,7 +169,8 @@ impl FpsOverlay {
             destination,
             &mut frame,
             &text.to_ascii_uppercase(),
-            if self.visible { 30.0 } else { 8.0 },
+            [WINDOW_LEFT, if self.visible { 30.0 } else { 8.0 }],
+            wrap,
             "window_status",
         );
     }
@@ -133,7 +183,8 @@ impl FpsOverlay {
         destination: &wgpu::Texture,
         frame: &mut OverlayFrame,
         text: &str,
-        y: f32,
+        start: [f32; 2],
+        wrap: u32,
         key: &'static str,
     ) {
         let size = [destination.width(), destination.height()];
@@ -154,14 +205,7 @@ impl FpsOverlay {
         gpu.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&camera));
         let mut instances = Vec::with_capacity(text.len() * 5);
-        let layout = self.font.wrap_layout(
-            text,
-            if key == "window_fps" {
-                u32::MAX
-            } else {
-                size[0].saturating_sub(16) / 2
-            },
-        );
+        let layout = self.font.wrap_layout(text, wrap);
         for (line_index, line) in layout.lines.iter().enumerate() {
             for (dx, dy, tint) in [
                 (-1.0, 0.0, [0.0; 3]),
@@ -172,8 +216,8 @@ impl FpsOverlay {
             ] {
                 instances.extend(self.font.build_text(
                     &text[line.start_byte..line.end_byte],
-                    8.0 + dx,
-                    y + line_index as f32 * 20.0 + dy,
+                    start[0] + dx,
+                    start[1] + line_index as f32 * HUD_LINE_HEIGHT + dy,
                     2.0,
                     0.0,
                     tint,
@@ -184,7 +228,7 @@ impl FpsOverlay {
         frame.pool.upload(gpu, key, &instances);
         if !frame.logged_first_frame {
             log::info!(
-                "FPS overlay: final window surface {}x{}, {} glyph quads",
+                "{key}: final window surface {}x{}, {} glyph quads",
                 size[0],
                 size[1],
                 instances.len()

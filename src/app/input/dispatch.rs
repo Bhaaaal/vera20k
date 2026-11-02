@@ -187,8 +187,17 @@ fn handle_mouse_input_inner(state: &mut AppState, button: MouseButton, btn_state
     if crate::app::input::campaign_input::is_locked(state) {
         return;
     }
-    // The stock tactical handler has no middle-button case.
+    // The stock tactical handler has no middle-button case; VERA's modern
+    // layout uses the middle button to pan. It reaches the tactical body over
+    // the battlefield, and always while a pan is in flight so a drag whose
+    // cursor leaves the battlefield can still end.
     if button == MouseButton::Middle {
+        let pan_here = modern_rts_controls(state)
+            && (crate::app::input::camera::cursor_over_battlefield(state)
+                || state.match_state.input.tactical_mouse.middle_drag_active());
+        if pan_here {
+            tactical_mouse(state, button, btn_state);
+        }
         return;
     }
     // MessageList::Input 0x005D4510 ends an open chat edit on the right
@@ -260,6 +269,107 @@ fn route_click_action_before_type_select<T>(
         .unwrap_or(ClickActionRoute::Selection)
 }
 
+/// VERA's modern RTS layout (`[VERA] ModernRtsControls=`, Options' VERA page):
+/// the battlefield gives orders with the right button, selects, band-selects
+/// and places buildings with the left, and pans with the middle. Off by
+/// default, so a stock profile keeps gamemd's left-orders / right-pan layout.
+pub(crate) fn modern_rts_controls(state: &AppState) -> bool {
+    state.persistence.options_profile.modern_rts_controls
+}
+
+/// Whether the modern layout's A attack mode is armed for the next click.
+pub(crate) fn attack_mode_armed(state: &AppState) -> bool {
+    state.match_state.input.queued_order_mode == OrderMode::AttackMove
+}
+
+/// The modern layout's double click: two plain left clicks on the same object
+/// inside the retail tap window (500 ms) select every unit of its type on
+/// screen, the modern equivalent of the retail `T`+click. The first click has
+/// already selected the object, so the tap reads that selection. Answers
+/// whether the click was consumed.
+fn modern_double_click_type_select(state: &mut AppState, x: f32, y: f32) -> bool {
+    let Some(id) = clicked_entity(state, x, y) else {
+        state.match_state.input.last_tactical_click = None;
+        return false;
+    };
+    let now = crate::util::time::Instant::now();
+    let double = state
+        .match_state
+        .input
+        .last_tactical_click
+        .is_some_and(|(previous, at)| {
+            previous == id
+                && now.saturating_duration_since(at) <= std::time::Duration::from_millis(500)
+        });
+    if !double {
+        state.match_state.input.last_tactical_click = Some((id, now));
+        return false;
+    }
+    state.match_state.input.last_tactical_click = None;
+    execute_type_select_tap(state);
+    log::info!("Modern controls: double click selected the object's type");
+    true
+}
+
+/// The stable id of the object under the given tactical pixel, the same pick
+/// the selection click makes.
+fn clicked_entity(state: &AppState, x: f32, y: f32) -> Option<u64> {
+    let runtime = state.match_state.sim_runtime.as_ref()?;
+    let sim = &runtime.simulation;
+    let order = crate::app::presentation::instances::tactical_entity_encounter_order(sim);
+    let zoom = state.match_state.input.zoom_level;
+    let world_x = x / zoom + state.match_state.input.camera_x;
+    let world_y = y / zoom + state.match_state.input.camera_y;
+    let fog_ref = if state.match_state.sandbox_full_visibility {
+        None
+    } else {
+        Some(sim.fog())
+    };
+    pick_entity_at_point(
+        crate::app::input::entity_pick::presented(state, sim),
+        &order,
+        fog_ref,
+        preferred_local_owner_name(state).as_deref(),
+        world_x,
+        world_y,
+        Some(sim.interner()),
+        sim.resolved_terrain(),
+    )
+}
+
+/// Clear the armed A attack mode (any other key, and the toggle itself).
+pub(crate) fn cancel_attack_mode(state: &mut AppState) {
+    if !attack_mode_armed(state) {
+        return;
+    }
+    state.match_state.input.queued_order_mode = OrderMode::Move;
+    crate::app::input::messages::post_selection_navigation_text(state, "Attack move off");
+    log::info!("Modern controls: attack mode cancelled");
+    state.platform.window.request_redraw();
+}
+
+/// The modern layout's bare A attack key: arm attack move (or clear it), post
+/// the message, and ask for the frame that redraws the tactical cursor. Called
+/// from `keyboard::in_game_key_edge` before any retail key dispatch.
+pub(crate) fn toggle_attack_mode(state: &mut AppState) {
+    if attack_mode_armed(state) {
+        cancel_attack_mode(state);
+        return;
+    }
+    state.match_state.input.queued_order_mode = OrderMode::AttackMove;
+    crate::app::input::messages::post_selection_navigation_text(state, "Attack move");
+    log::info!("Modern controls: attack mode armed");
+    state.platform.window.request_redraw();
+}
+
+/// Whether a battlefield left press carries one of the modern layout's order
+/// prefixes: Ctrl alone (force fire) or the armed A attack mode. Such a press
+/// is a click, so it must not start a band box.
+fn left_press_carries_order_prefix(state: &AppState) -> bool {
+    state.match_state.input.queued_order_mode == OrderMode::AttackMove
+        || (is_ctrl_held(state) && !is_alt_held(state) && !is_shift_held(state))
+}
+
 /// Tactical-viewport mouse body (routed here when the full-tactical ClickRegion
 /// consumes the edge — i.e. a click in the play area, or a captured drag/release
 /// that started there). Logic is the legacy handler's tactical path, unchanged;
@@ -301,6 +411,12 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                     // The held-drag 4AC380 never starts a band in beacon
                     // mode (4AC3A3).
                     || crate::app::input::beacon::mode_active(state)
+                    // Modern RTS controls: a left press that carries an order
+                    // prefix (Ctrl for force fire, A for attack move) is a
+                    // click, not the start of a band box. The capture and the
+                    // physical button are still taken so the release reaches
+                    // the same release body.
+                    || (modern_rts_controls(state) && left_press_carries_order_prefix(state))
                 {
                     return; // suppress selection drag while a targeting / repair / sell / beacon mode is active
                 }
@@ -321,6 +437,16 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
             }
         }
         MouseButton::Right => {
+            if modern_rts_controls(state) {
+                // The modern layout gives the right button to orders: a press
+                // does nothing (no pan, no capture) and the release, if the
+                // player did not drag, issues the order. gamemd's right-drag
+                // pan is the middle button's job here.
+                if !btn_state.is_pressed() {
+                    modern_right_click(state);
+                }
+                return;
+            }
             if btn_state.is_pressed() {
                 // The native right press has no game effect at all: it records
                 // the pan anchor and takes the capture, and only does that when
@@ -345,8 +471,96 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                 state.match_state.input.selection_state.cancel_drag();
             }
         }
+        MouseButton::Middle => {
+            // gamemd's tactical handler has no middle-button case. VERA's
+            // modern layout puts the right-drag pan gesture here.
+            if !modern_rts_controls(state) {
+                return;
+            }
+            if btn_state.is_pressed() {
+                if state.match_state.input.tactical_mouse.press_may_arm() {
+                    state.match_state.input.tactical_mouse.begin_middle_drag((
+                        state.match_state.input.cursor_x,
+                        state.match_state.input.cursor_y,
+                    ));
+                }
+            } else {
+                state.match_state.input.tactical_mouse.end_middle_drag();
+                state.match_state.input.selection_state.cancel_drag();
+            }
+        }
         _ => {}
     }
+}
+
+/// The modern layout's battlefield right click.
+///
+/// It carries everything the left release does with—the armed cursor modes, the
+/// planning connection, the beacon and finally the context order gamemd's left
+/// click issues—while selection, band selection and building placement stay on
+/// the left button (`left_up_branches` and `tactical_left_up`).
+fn modern_right_click(state: &mut AppState) {
+    // A super weapon keeps gamemd's direction here too: the right button
+    // cancels the aim instead of ordering, for both the battlefield and the
+    // radar (`radar::right_press` does the same there).
+    if state.armed_super_weapon_type().is_some() {
+        if state
+            .match_state
+            .input
+            .cancel_pointer_mode(&mut state.match_state.match_presentation.sidebar_gadget_state)
+        {
+            log::info!("Modern controls: right click cancelled the armed super weapon");
+        }
+        return;
+    }
+    let selection_empty = selected_stable_ids_in_order(
+        state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .map(|rt| &rt.simulation),
+        state.rules(),
+        &state.match_state.input.selection_order,
+        state.match_state.input.selection_order_pending,
+    )
+    .is_empty();
+    match state.match_state.input.tactical_pointer_mode(
+        &state.match_state.match_presentation.sidebar_gadget_state,
+        selection_empty,
+    ) {
+        super::state::TacticalPointerMode::SuperWeapon(section) => {
+            log::info!("Modern controls: right click launched the armed super weapon");
+            let section = section.to_owned();
+            crate::app::input::commands::launch_super_weapon_at_cursor(state, &section);
+            return;
+        }
+        super::state::TacticalPointerMode::RepairSell => {
+            crate::app::input::commands::try_repair_sell_mode_click(state);
+            return;
+        }
+        super::state::TacticalPointerMode::Ordinary => {}
+    }
+    if crate::app::input::planning_mode::connect_at_cursor(state) {
+        return;
+    }
+    if selection_empty && crate::app::input::beacon::mode_active(state) {
+        let cell = crate::app::match_runtime::sim_tick::screen_point_to_world_cell(
+            state,
+            state.match_state.input.cursor_x,
+            state.match_state.input.cursor_y,
+        );
+        crate::app::input::beacon::place_at_cell(state, cell);
+        return;
+    }
+    try_queue_context_order(
+        state,
+        ContextOrderTarget::ScreenPoint(
+            state.match_state.input.cursor_x,
+            state.match_state.input.cursor_y,
+        ),
+        true,
+    );
+    state.match_state.input.queued_order_mode = OrderMode::Move;
 }
 
 /// What reaches `DisplayClass::BandBox_LeftUp @ 0x004AB9B0`.
@@ -369,7 +583,11 @@ pub(crate) enum LeftUp {
 /// (`0x004ABC67`, `0x004ABC85`, `0x004AC294`), whatever the release did.
 pub(crate) fn band_box_left_up(state: &mut AppState, click: LeftUp) {
     left_up_branches(state, click);
-    state.match_state.input.queued_order_mode = OrderMode::Move;
+    // The modern layout gives the armed attack-move mode to the right button's
+    // order, so a left release must not spend it.
+    if !modern_rts_controls(state) {
+        state.match_state.input.queued_order_mode = OrderMode::Move;
+    }
 }
 
 fn left_up_branches(state: &mut AppState, click: LeftUp) {
@@ -435,28 +653,76 @@ fn tactical_left_up(state: &mut AppState) {
         state.match_state.input.selection_order_pending,
     )
     .is_empty();
+    // The modern layout hands the armed modes and the beacon to the right
+    // button; the left release is selection, placement and cancellation, plus
+    // the two order prefixes the player asked for on the left: A (attack move)
+    // and Ctrl (force fire). A prefix outranks the cancel rungs.
+    //
+    // An armed super weapon keeps gamemd's own direction: it fires on this left
+    // release and the right button cancels it (`modern_right_click`), on the
+    // battlefield and on the radar alike.
+    let modern = modern_rts_controls(state) && state.armed_super_weapon_type().is_none();
+    if modern && left_press_carries_order_prefix(state) {
+        // Ctrl carries its own force-fire modifier. A is the attack key: the
+        // armed AttackMove mode makes `context_order` force-fire any object
+        // under the cursor (the player's own units and buildings included) and
+        // attack-move the bare ground, so this click keeps the mode as it is.
+        let attack_prefix = attack_mode_armed(state);
+        let queued = try_queue_context_order(
+            state,
+            ContextOrderTarget::ScreenPoint(
+                state.match_state.input.cursor_x,
+                state.match_state.input.cursor_y,
+            ),
+            true,
+        );
+        state.match_state.input.queued_order_mode = OrderMode::Move;
+        if queued && attack_prefix {
+            log::info!("Modern controls: attack order issued (unit or ground)");
+        }
+        if queued {
+            return;
+        }
+    }
+    if modern {
+        if state
+            .match_state
+            .input
+            .cancel_pointer_mode(&mut state.match_state.match_presentation.sidebar_gadget_state)
+        {
+            log::info!("Modern controls: left click cancelled the armed cursor mode");
+            return;
+        }
+        if crate::app::input::beacon::mode_active(state) {
+            crate::app::input::beacon::set_place_beacon_mode(
+                state,
+                crate::app::input::beacon::BeaconModeRequest::Off,
+            );
+            return;
+        }
+    }
     match state.match_state.input.tactical_pointer_mode(
         &state.match_state.match_presentation.sidebar_gadget_state,
         selection_empty,
     ) {
-        super::state::TacticalPointerMode::SuperWeapon(section) => {
+        super::state::TacticalPointerMode::SuperWeapon(section) if !modern => {
             let section = section.to_owned();
             crate::app::input::commands::launch_super_weapon_at_cursor(state, &section);
             return;
         }
-        super::state::TacticalPointerMode::RepairSell => {
+        super::state::TacticalPointerMode::RepairSell if !modern => {
             crate::app::input::commands::try_repair_sell_mode_click(state);
             return;
         }
-        super::state::TacticalPointerMode::Ordinary => {}
+        _ => {}
     }
-    if crate::app::input::planning_mode::connect_at_cursor(state) {
+    if !modern && crate::app::input::planning_mode::connect_at_cursor(state) {
         return;
     }
     // Past PlanMgr's release (0x00693225), DetermineAction answers 0x3C in
     // beacon mode with nothing selected (0x006929AF); the release places
     // the beacon (0x004AC033).
-    if selection_empty && crate::app::input::beacon::mode_active(state) {
+    if !modern && selection_empty && crate::app::input::beacon::mode_active(state) {
         let cell = crate::app::match_runtime::sim_tick::screen_point_to_world_cell(
             state,
             state.match_state.input.cursor_x,
@@ -541,19 +807,33 @@ fn tactical_left_up(state: &mut AppState) {
             return;
         }
     }
+    // Modern layout: a double click on an object selects every unit of its
+    // type on screen (the retail `T`+click, moved to the pointer). The first
+    // click already selected it, so the tap reads that selection.
+    if modern
+        && !is_shift_held(state)
+        && !is_ctrl_held(state)
+        && !is_alt_held(state)
+        && let SelectAction::Click(sx, sy) = action
+        && modern_double_click_type_select(state, sx, sy)
+    {
+        return;
+    }
     // TypeSelect modifies only actions that already resolved as
     // selection/toggle. Ground move, attack, and every other
     // context action keep their ordinary priority while T is held.
     let type_select_held = state.match_state.input.type_select.held();
-    if matches!(
-        route_click_action_before_type_select(action, |sx, sy| {
-            // A resolved context dispatch consumes the click
-            // even when its receiver admits no command.
-            try_queue_context_order(state, ContextOrderTarget::ScreenPoint(sx, sy), true)
-                .then_some(())
-        },),
-        ClickActionRoute::ContextOrder(())
-    ) {
+    if !modern
+        && matches!(
+            route_click_action_before_type_select(action, |sx, sy| {
+                // A resolved context dispatch consumes the click
+                // even when its receiver admits no command.
+                try_queue_context_order(state, ContextOrderTarget::ScreenPoint(sx, sy), true)
+                    .then_some(())
+            },),
+            ClickActionRoute::ContextOrder(())
+        )
+    {
         return;
     }
     let mut queued_selection: Option<SelectionMutation> = None;
@@ -1673,6 +1953,9 @@ fn handle_hotkey_pressed_inner(
             | HotkeyFallback::ArrowDown,
         ) => {}
         HotkeyResolution::Unhandled => {
+            // The modern layout's bare A attack key is consumed earlier, in
+            // `keyboard::in_game_key_edge`, so it reaches the game whatever a
+            // retail keyboard.ini says.
             #[cfg(feature = "dev-overlays")]
             if KeyModifiers::from_modifiers_state(state.match_state.input.hotkey_modifiers)
                 .dev_chord()
@@ -2065,6 +2348,11 @@ fn handle_dev_hotkey_pressed(state: &mut AppState, code: winit::keyboard::KeyCod
                 state,
                 crate::ui::skirmish_shell::SavedSeedMode::Load,
             );
+        }
+        KeyCode::F6 => {
+            // Test-mode HUD: shown from launch, hidden here for clean captures.
+            let shown = state.renderer.test_hud.toggle();
+            log::info!("Test HUD: {}", if shown { "shown" } else { "hidden" });
         }
         // Interim order-mode arms until the stock click modifiers
         // (Ctrl+Shift+click attack move, beacon key) are implemented.

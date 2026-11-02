@@ -315,8 +315,9 @@ impl App {
             log::warn!("Campaign Intro/Brief lookup failed: {error:#}");
             None
         });
-        state.match_state.input.zoom_level = 1.0;
-        state.match_state.input.zoom_target = 1.0;
+        let zoom = crate::app::input::camera::default_match_zoom(state);
+        state.match_state.input.zoom_level = zoom;
+        state.match_state.input.zoom_target = zoom;
         if let Some(movie) = movie {
             // StartScenario683AB0 stops the shell theme before Intro/Brief;
             // PlayMovie's pause/resume therefore cannot revive INTRO here.

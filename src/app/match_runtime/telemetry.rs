@@ -14,8 +14,8 @@
 //! from `DiagnosticsState::frame_timer` (the render loop) and its `tick_hz`
 //! from [`TickRateMeter`] (committed ticks), so each number keeps its owner.
 
-use std::collections::VecDeque;
 use crate::util::time::{Duration, Instant};
+use std::collections::VecDeque;
 
 use crate::sim::telemetry::TimingSample;
 

@@ -200,6 +200,16 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
     if state.armed_building_type().is_some() {
         return Some(CursorFeedbackKind::Invalid);
     }
+    // Modern RTS controls: the armed A attack mode shows the attack-move
+    // pointer wherever the cursor sits, with or without a selection, so
+    // pressing A is visible before the click instead of only after it. The
+    // armed cursor modes above still win, and the click itself is what needs a
+    // selection.
+    if crate::app::input::dispatch::modern_rts_controls(state)
+        && state.match_state.input.queued_order_mode == crate::app::types::OrderMode::AttackMove
+    {
+        return Some(CursorFeedbackKind::AttackMove);
+    }
     let sim = state
         .match_state
         .sim_runtime

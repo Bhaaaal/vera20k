@@ -370,17 +370,35 @@ pub(crate) fn left_release(state: &mut AppState) {
     else {
         return;
     };
+    let super_weapon = matches!(action, RadarAction::SuperWeapon(_));
     crate::app::input::dispatch::band_box_left_up(
         state,
         LeftUp::Radar {
             target,
-            super_weapon: matches!(action, RadarAction::SuperWeapon(_)),
+            super_weapon,
         },
     );
 }
 
-/// A right press on the radar recentres the view, whatever the action.
+/// A right press on the radar recentres the view, whatever the action — except
+/// under the modern layout while a super weapon is armed, which the right
+/// button cancels instead (the same left-fires / right-cancels direction the
+/// battlefield keeps).
 pub(crate) fn right_press(state: &mut AppState) {
+    if crate::app::input::dispatch::modern_rts_controls(state)
+        && state.armed_super_weapon_type().is_some()
+    {
+        if state
+            .match_state
+            .input
+            .cancel_pointer_mode(&mut state.match_state.match_presentation.sidebar_gadget_state)
+        {
+            log::info!(
+                "Modern controls: right click on the radar cancelled the armed super weapon"
+            );
+        }
+        return;
+    }
     if crate::app::presentation::sidebar_render::is_cursor_over_minimap(state) {
         recentre(state);
     }

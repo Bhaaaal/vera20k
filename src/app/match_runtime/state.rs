@@ -84,6 +84,10 @@ pub(crate) struct MatchState {
     pub(crate) configured_input_delay_ticks: u64,
     /// Seeded empty-map sandbox keeps full map visibility while still locking control.
     pub(crate) sandbox_full_visibility: bool,
+    /// The skirmish screen's Test Mode switch for this match: the offline
+    /// trainer (`app::debug_tools`) and the test HUD follow it. Only a
+    /// `debug-tools` build can ever set it.
+    pub(crate) test_mode: bool,
     /// The debug pause (`J` hotkey): the simulation is frozen
     /// without an in-scenario modal. Every modal transition ends it.
     pub(crate) debug_pause: bool,

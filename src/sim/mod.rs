@@ -63,6 +63,7 @@ pub(crate) mod factory_owners;
 pub mod frame_profile;
 #[cfg(feature = "telemetry")]
 pub mod telemetry;
+// The offline trainer behind the skirmish screen's Test Mode switch.
 #[cfg(feature = "debug-tools")]
 pub mod cheats;
 #[cfg(feature = "debug-tools")]

@@ -7,3 +7,6 @@ pub(crate) mod fps_overlay;
 pub(crate) mod shell_capture;
 pub(crate) mod state;
 pub(crate) mod tactical_capture;
+/// Test-mode HUD: a window-fixed readout in the match screen's bottom-left.
+#[cfg(feature = "dev-overlays")]
+pub(crate) mod test_hud;

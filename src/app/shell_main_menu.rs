@@ -105,6 +105,10 @@ impl crate::app::persistence::options::launcher::LauncherPreviewOperations for A
             crate::app::input::camera::reset_view_distance(self);
         }
     }
+    fn store_modern_rts_controls(&mut self, enabled: bool) {
+        // The battlefield reads it on its next click; nothing changes at once.
+        self.persistence.options_profile.modern_rts_controls = enabled;
+    }
     fn store_wol_test_service(&mut self, wol_test_service: bool) {
         // The next Internet visit picks its provider from it.
         self.persistence.options_profile.wol_test_service = wol_test_service;

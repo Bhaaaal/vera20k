@@ -67,7 +67,9 @@ pub fn hovered_shell_control(
         return Some(SkirmishHoverTarget::MapPreview0x468);
     }
     for checkbox in layout.checkboxes {
-        if checkbox.rect.contains(x, y) {
+        if checkbox.rect.contains(x, y)
+            && crate::ui::skirmish_shell::checkbox_available(checkbox.id)
+        {
             return Some(SkirmishHoverTarget::Checkbox(checkbox.id));
         }
     }
@@ -173,6 +175,9 @@ pub fn status_help_key_for_hover(target: SkirmishHoverTarget) -> Option<&'static
         SkirmishHoverTarget::Checkbox(SkirmishCheckboxId::BuildOffAlly0x69d) => {
             Some("STT:SkirmishCBoxBuildOffAlly")
         }
+        // VERA's own control: retail ships no CST string for it, and an unknown
+        // key would show its `MISSING:…` marker, so the line stays empty.
+        SkirmishHoverTarget::Checkbox(SkirmishCheckboxId::TestMode0x6a1) => None,
         SkirmishHoverTarget::Trackbar(SkirmishTrackbarId::GameSpeed0x529) => {
             Some("STT:SkirmishSliderSpeed")
         }

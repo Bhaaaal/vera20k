@@ -56,9 +56,9 @@ mod object_stages;
 #[cfg(test)]
 mod object_stages_gpu_tests;
 
-use anyhow::Result;
 #[cfg(feature = "telemetry-dashboard")]
 use crate::util::time::{Duration, Instant};
+use anyhow::Result;
 
 // Re-export shared types so any remaining `use crate::app::presentation::render::Foo` imports still compile.
 // New code should import from `crate::app::types` directly.
@@ -838,7 +838,10 @@ fn upload_to_gpu(
             let (width, height) = crate::app::input::camera::tactical_viewport_size(state);
             presentation.flying_credits.borrow_mut().build_instances(
                 &state.renderer.bit_font,
-                [state.match_state.input.camera_x, state.match_state.input.camera_y],
+                [
+                    state.match_state.input.camera_x,
+                    state.match_state.input.camera_y,
+                ],
                 state.match_state.input.zoom_level,
                 [width, height],
             )

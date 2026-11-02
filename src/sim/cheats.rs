@@ -21,6 +21,10 @@ pub struct CheatFlags {
     pub money_target: i32,
     pub infinite_power: bool,
     pub instant_build: bool,
+    /// Keep the local house's super weapons charged: the Test Mode switch's
+    /// "no cooldown". Applied every frame, so a fired weapon is ready again as
+    /// soon as it reactivates.
+    pub super_weapon_ready: bool,
     pub invincible: bool,
     pub damage_scale: u16,
     pub reveal_map: bool,
@@ -43,6 +47,7 @@ impl CheatFlags {
         self.infinite_money
             || self.infinite_power
             || self.instant_build
+            || self.super_weapon_ready
             || self.invincible
             || self.damage_scale > 1
             || self.reveal_map
@@ -282,6 +287,18 @@ impl Simulation {
             }
         }
         if pending & 4 != 0 {
+            let frame = self.session.binary_frame();
+            for (type_id, instance) in self.super_weapons.house_instances_mut(&owner) {
+                if let Some(sw) = rules.super_weapon(self.interner.resolve(*type_id)) {
+                    instance.debug_charge_full(sw, frame);
+                }
+            }
+        }
+        // The Test Mode switch's "no cooldown": a held flag recharges the
+        // house's super weapons on every frame, so a fired one is ready again
+        // as soon as it reactivates (`debug_charge_full` keeps held/suspended
+        // instances alone by itself).
+        if flags.super_weapon_ready {
             let frame = self.session.binary_frame();
             for (type_id, instance) in self.super_weapons.house_instances_mut(&owner) {
                 if let Some(sw) = rules.super_weapon(self.interner.resolve(*type_id)) {
@@ -726,6 +743,55 @@ mod tests {
             50,
             "action was consumed once"
         );
+    }
+
+    #[test]
+    fn the_held_flag_keeps_super_weapons_charged_on_every_frame() {
+        let rules=crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str("[SuperWeaponTypes]\n0=TestSpecial\n[TestSpecial]\nType=ChronoSphere\nRechargeTime=500\n")).unwrap();
+        let (mut sim, owner) = offline();
+        let ty = sim.interner.intern("TestSpecial");
+        let mut instance = crate::sim::superweapon::SuperWeaponInstance::new(ty, owner, 0);
+        instance.set_is_active_for_test(true);
+        sim.super_weapons
+            .map_mut_for_test()
+            .entry(owner)
+            .or_default()
+            .insert(ty, instance);
+        assert!(!sim.super_weapons[&owner][&ty].is_ready());
+        sim.set_cheat_flags(CheatFlags {
+            super_weapon_ready: true,
+            ..CheatFlags::default()
+        })
+        .unwrap();
+        sim.apply_debug_tools(&rules);
+        assert!(
+            sim.super_weapons[&owner][&ty].is_ready(),
+            "the held flag charges the house's weapons"
+        );
+        // Firing clears readiness; the next frame's apply restores it.
+        sim.super_weapons
+            .map_mut_for_test()
+            .get_mut(&owner)
+            .unwrap()
+            .get_mut(&ty)
+            .unwrap()
+            .set_is_ready_for_test(false);
+        sim.apply_debug_tools(&rules);
+        assert!(
+            sim.super_weapons[&owner][&ty].is_ready(),
+            "no cooldown means it is ready again on the next frame"
+        );
+        // Clearing the flag leaves the real recharge alone.
+        sim.set_cheat_flags(CheatFlags::default()).unwrap();
+        sim.super_weapons
+            .map_mut_for_test()
+            .get_mut(&owner)
+            .unwrap()
+            .get_mut(&ty)
+            .unwrap()
+            .set_is_ready_for_test(false);
+        sim.apply_debug_tools(&rules);
+        assert!(!sim.super_weapons[&owner][&ty].is_ready());
     }
 
     #[test]

@@ -646,6 +646,26 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
     state.match_state.input.queued_order_mode = render::OrderMode::Move;
     state.match_state.match_audio.reset_for_new_match();
     state.match_state.sandbox_full_visibility = result.scenario.sandbox_full_visibility;
+    // The skirmish screen's Test Mode switch is read once per match, here, so a
+    // later shell visit cannot change a running match. Builds without the dev
+    // overlays have no trainer and leave it off.
+    state.match_state.test_mode = {
+        #[cfg(feature = "dev-overlays")]
+        {
+            let enabled = state.frontend.skirmish_shell_state.test_mode;
+            if enabled {
+                log::info!("Test Mode: trainer admission armed for this match");
+            }
+            enabled
+        }
+        #[cfg(not(feature = "dev-overlays"))]
+        {
+            if state.frontend.skirmish_shell_state.test_mode {
+                log::warn!("Test Mode needs a development build; the switch is ignored");
+            }
+            false
+        }
+    };
 
     // `Start_Scenario @ 0x00683AB0` after `Read_Scenario`: `[Basic] Theme`
     // resolves through `From_Name` (`0x004758F0`); -1 -> `Stop(fade=1)` of the

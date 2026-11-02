@@ -4,8 +4,8 @@
 //! Match-lifetime diagnostic replay lives in `app::match_diagnostics`; this
 //! owner is process-scoped tooling state.
 
-use std::collections::VecDeque;
 use crate::util::time::{Duration, Instant};
+use std::collections::VecDeque;
 
 const FRAME_TIMER_WINDOW: usize = 60;
 

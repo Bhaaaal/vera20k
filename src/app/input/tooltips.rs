@@ -1684,22 +1684,12 @@ mod tests {
 
     #[test]
     fn tooltip_draw_uses_native_insets_for_cjk_latin_digits_and_multiple_lines() {
-        let font = make_test_font(
-            &[('汉' as u16, 16), (b'A' as u16, 6), (b'1' as u16, 6)],
-            4,
-        );
+        let font = make_test_font(&[('汉' as u16, 16), (b'A' as u16, 6), (b'1' as u16, 6)], 4);
         for region in [[0.0, 0.0, 800.0, 600.0], [0.0, 0.0, 1280.0, 720.0]] {
             for text in ["汉", "A1", "汉\nA1"] {
                 let layout = font.wrap_layout(text, region[2] as u32);
-                let (fill, _, glyphs) = tooltip_quads(
-                    &font,
-                    text,
-                    [100, 100],
-                    region,
-                    [1.0; 3],
-                    [0.0; 2],
-                    true,
-                );
+                let (fill, _, glyphs) =
+                    tooltip_quads(&font, text, [100, 100], region, [1.0; 3], [0.0; 2], true);
                 assert_eq!(
                     fill[0].size,
                     [layout.width as f32 + 8.0, layout.height as f32 + 4.0]

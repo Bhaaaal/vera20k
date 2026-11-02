@@ -4,8 +4,8 @@
 
 use super::*;
 use crate::app::diagnostics::shell_capture::LanSetupCrash;
-use std::path::{Path, PathBuf};
 use crate::util::time::{Duration, Instant};
+use std::path::{Path, PathBuf};
 
 const FAULT_BOUNDARY_LIMIT: Duration = Duration::from_secs(5);
 

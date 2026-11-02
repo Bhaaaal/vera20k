@@ -67,14 +67,16 @@ pub(crate) const ORIGINAL_SHAPE_LABEL: &str = "Original 4:3 Shape";
 pub(crate) const ORIGINAL_SHAPE_HELP: &str =
     "Battles keep the original 4:3 shape, with bars on wide screens.";
 pub(crate) const YR_ORIGINAL_STYLE_LABEL: &str = "Original YR Style";
-pub(crate) const YR_ORIGINAL_STYLE_HELP: &str =
-    "Use Yuri's Revenge's loading screen and menu movie, plus the Skirmish and multiplayer lobby backgrounds.";
+pub(crate) const YR_ORIGINAL_STYLE_HELP: &str = "Use Yuri's Revenge's loading screen and menu movie, plus the Skirmish and multiplayer lobby backgrounds.";
 pub(crate) const RENDER_INTERPOLATION_LABEL: &str = "Render Interpolation";
 pub(crate) const RENDER_INTERPOLATION_HELP: &str = "Smooth motion between simulation frames. Adds one frame of visual latency; does not increase simulation speed.";
+pub(crate) const MODERN_RTS_CONTROLS_LABEL: &str = "Modern RTS Controls";
+pub(crate) const MODERN_RTS_CONTROLS_HELP: &str = "Right-click gives orders, left-click selects and places buildings, and the middle mouse button pans. Turn it off for the original controls.";
 pub(crate) const MOUSE_WHEEL_ZOOM_LABEL: &str = "Mouse Wheel Zoom";
 pub(crate) const MOUSE_WHEEL_ZOOM_HELP: &str = "Use the mouse wheel to zoom battles in or out. Turning this off restores the normal view distance.";
 pub(crate) const LOCK_CURSOR_LABEL: &str = "Lock Cursor to Window";
-pub(crate) const LOCK_CURSOR_HELP: &str = "Keep the mouse inside the game window. Ctrl+Alt+L frees it until you click in the game.";
+pub(crate) const LOCK_CURSOR_HELP: &str =
+    "Keep the mouse inside the game window. Ctrl+Alt+L frees it until you click in the game.";
 pub(crate) const SHIFT_QUEUE_LABEL: &str = "Shift-Click Batch Queue";
 pub(crate) const DEVELOPER_OPTIONS_LABEL: &str = "Developer Options";
 pub(crate) const WOL_TEST_SERVICE_LABEL: &str = "Offline Internet Test Service";
@@ -499,6 +501,11 @@ pub(crate) enum LauncherCheckboxId {
     RenderInterpolation,
     /// VERA's local camera option: the wheel changes battle view distance.
     MouseWheelZoom,
+    /// VERA's local control option: the modern RTS layout on the battlefield.
+    /// Right-click gives orders, left-click selects, band-selects and places
+    /// buildings, and the middle button pans. The sidebar, radar and shell keep
+    /// their retail buttons.
+    ModernRtsControls,
     /// VERA's cursor lock: the pointer stays inside the game window. It
     /// applies at once and is saved.
     LockCursor,
@@ -546,6 +553,7 @@ pub(crate) enum LauncherOptionsEvent {
     WolTestServiceChanged(bool),
     RenderInterpolationChanged(bool),
     MouseWheelZoomChanged(bool),
+    ModernRtsControlsChanged(bool),
     LockCursorChanged(bool),
     FpsCounterChanged(bool),
     SkipStartupLogoChanged(bool),
@@ -591,6 +599,7 @@ pub(crate) struct LauncherOptionsValues {
     pub(crate) yr_original_style: bool,
     pub(crate) render_interpolation: bool,
     pub(crate) mouse_wheel_zoom: bool,
+    pub(crate) modern_rts_controls: bool,
     pub(crate) lock_cursor: bool,
     pub(crate) shift_queue: bool,
     pub(crate) wol_test_service: bool,
@@ -622,6 +631,7 @@ impl Default for LauncherOptionsValues {
             yr_original_style: false,
             render_interpolation: false,
             mouse_wheel_zoom: false,
+            modern_rts_controls: false,
             lock_cursor: true,
             shift_queue: false,
             wol_test_service: false,
@@ -989,6 +999,7 @@ impl OptionsDialogState {
             LauncherCheckboxId::WolTestService => &mut self.values.wol_test_service,
             LauncherCheckboxId::RenderInterpolation => &mut self.values.render_interpolation,
             LauncherCheckboxId::MouseWheelZoom => &mut self.values.mouse_wheel_zoom,
+            LauncherCheckboxId::ModernRtsControls => &mut self.values.modern_rts_controls,
             LauncherCheckboxId::LockCursor => &mut self.values.lock_cursor,
             LauncherCheckboxId::FpsCounter => &mut self.values.fps_counter,
             LauncherCheckboxId::SkipStartupLogo => &mut self.values.skip_startup_logo,
@@ -1019,6 +1030,9 @@ impl OptionsDialogState {
             LauncherCheckboxId::MouseWheelZoom => self
                 .pending_events
                 .push(LauncherOptionsEvent::MouseWheelZoomChanged(checked)),
+            LauncherCheckboxId::ModernRtsControls => self
+                .pending_events
+                .push(LauncherOptionsEvent::ModernRtsControlsChanged(checked)),
             LauncherCheckboxId::LockCursor => self
                 .pending_events
                 .push(LauncherOptionsEvent::LockCursorChanged(checked)),

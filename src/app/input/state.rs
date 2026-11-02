@@ -258,6 +258,10 @@ pub(crate) struct MatchInputState {
     /// state: the original stamps `timeGetTime()` here and only a recall writes
     /// it — assigning with Ctrl+digit never does.
     pub(crate) last_control_group_press: Option<(usize, crate::util::time::Instant)>,
+    /// The object the last battlefield left click picked and when, for the
+    /// modern layout's double click (its type select). Presentation state: the
+    /// simulation never reads it.
+    pub(crate) last_tactical_click: Option<(u64, crate::util::time::Instant)>,
     /// The object the camera is following, i.e. `DisplayClass +0x11A0` behind
     /// its valid byte `+0x119C`. `None` is the cleared pair.
     pub(crate) follow_target: Option<u64>,
@@ -404,6 +408,7 @@ impl MatchInputState {
             selection_voice_enabled: true,
             queued_order_mode: crate::app::types::OrderMode::Move,
             last_control_group_press: None,
+            last_tactical_click: None,
             follow_target: None,
             targeting_mode: None,
             building_placement_preview: None,

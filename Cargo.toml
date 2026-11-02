@@ -62,7 +62,12 @@ npbug = ["vera20k-core/npbug"]
 # The Ctrl+Shift dev chord: renderer-native diagnostic overlays (grid, heightmap,
 # pathgrid, foot path, fog), the debug pause and quicksave/quickload. Captures
 # rely on it (literal Ctrl+Shift+M/N quicksave/quickload).
-dev-overlays = ["vera20k-core/dev-overlays"]
+# It also compiles the engine's offline trainer, which carries the Skirmish
+# screen's Test Mode switch (`app::test_mode`, `sim::cheats`); the trainer is
+# inert unless that switch or the dashboard asks for it and refuses every
+# network or replay session. The release workflow's `--no-default-features`
+# build has none of it.
+dev-overlays = ["vera20k-core/dev-overlays", "vera20k-core/debug-tools"]
 # Optional read-only local browser dashboard, absent from default/shipping builds.
 telemetry-dashboard = ["vera20k-core/telemetry", "dep:sha1"]
 # Explicit offline trainer and per-unit event hooks. Never enabled by the

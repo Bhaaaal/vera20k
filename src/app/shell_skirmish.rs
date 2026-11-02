@@ -180,8 +180,9 @@ impl App {
         state.frontend.shell_first_paint_slide = None;
         state.frontend.skirmish_preview_texture = None;
         crate::app::loading::pump::begin_loading(state, request);
-        state.match_state.input.zoom_level = 1.0;
-        state.match_state.input.zoom_target = 1.0;
+        let zoom = crate::app::input::camera::default_match_zoom(state);
+        state.match_state.input.zoom_level = zoom;
+        state.match_state.input.zoom_target = zoom;
         Ok(())
     }
 
@@ -1081,7 +1082,9 @@ impl App {
             .skirmish_shell_state
             .choose_map_modal
             .as_mut()
-            && modal.statics.hover(&text, crate::util::time::Instant::now())
+            && modal
+                .statics
+                .hover(&text, crate::util::time::Instant::now())
         {
             state.platform.window.request_redraw();
         }

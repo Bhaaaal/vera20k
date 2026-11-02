@@ -380,6 +380,20 @@ pub(crate) fn set_camera_position(
 const MIN_ZOOM: f32 = 0.25;
 /// Maximum zoom level — zoomed in close to pixel-level detail.
 const MAX_ZOOM: f32 = 4.0;
+/// The battlefield zoom a new match opens on: 200%, the `Smaller` view-distance
+/// tier. It applies while the player's wheel zoom is on; turning that option
+/// off (or `reset_view_distance`) returns the stock 100%.
+pub(crate) const DEFAULT_MATCH_ZOOM: f32 = 2.0;
+
+/// The zoom a new match starts at, from the player's wheel-zoom preference. The
+/// options page owns the switch; a profile without it keeps gamemd's 100%.
+pub(crate) fn default_match_zoom(state: &AppState) -> f32 {
+    if state.persistence.options_profile.mouse_wheel_zoom {
+        DEFAULT_MATCH_ZOOM
+    } else {
+        1.0
+    }
+}
 /// Multiplicative zoom step per mouse wheel notch (smooth exponential zoom).
 const ZOOM_STEP: f32 = 1.15;
 
@@ -892,6 +906,10 @@ pub(crate) struct TacticalMouseState {
     left_held: bool,
     /// Right button physically down.
     right_held: bool,
+    /// Middle button physically down. gamemd has no middle-button case; only
+    /// VERA's modern RTS layout (`[VERA] ModernRtsControls=`) reads it, where
+    /// the middle button carries the pan gesture instead of the right button.
+    middle_held: bool,
     /// Right-press anchor in render-target pixels.
     pub(crate) right_anchor: (f32, f32),
     /// The right drag has passed the system drag threshold. Once set, the
@@ -917,6 +935,7 @@ impl TacticalMouseState {
         match button {
             winit::event::MouseButton::Left => self.left_held = held,
             winit::event::MouseButton::Right => self.right_held = held,
+            winit::event::MouseButton::Middle => self.middle_held = held,
             _ => {}
         }
     }
@@ -927,6 +946,11 @@ impl TacticalMouseState {
 
     pub(crate) fn right_held(&self) -> bool {
         self.right_held
+    }
+
+    /// Whether VERA's modern RTS layout has a middle pan gesture in flight.
+    pub(crate) fn middle_drag_active(&self) -> bool {
+        self.middle_held
     }
 
     /// A new view resets tactical capture, not the physical buttons retained
@@ -1026,6 +1050,22 @@ impl TacticalMouseState {
         self.right_pan_engaged = false;
     }
 
+    /// The middle-button arm of the same pan gesture, for VERA's modern RTS
+    /// layout: the anchor, threshold, pan and coast latches are the right-drag
+    /// ones, so the per-frame pan block needs no second copy.
+    pub(crate) fn begin_middle_drag(&mut self, cursor: (f32, f32)) {
+        self.middle_held = true;
+        self.begin_right_drag(cursor);
+    }
+
+    /// The middle release. A middle click (no drag) has no action at all in the
+    /// modern layout, so the threshold answer is dropped.
+    pub(crate) fn end_middle_drag(&mut self) {
+        self.middle_held = false;
+        self.right_held = false;
+        self.release();
+    }
+
     /// Scroll::Cancel_Mouse6938C0 releases only capture. The physical
     /// buttons and retained pan/coast/focus state survive this callback.
     pub(crate) fn cancel_mouse_drag(&mut self) {
@@ -1047,8 +1087,11 @@ impl TacticalMouseState {
     /// True while the right button owns the per-frame mouse block. The left
     /// button is tested first in the original, so a band box in progress keeps
     /// the pan from running.
+    ///
+    /// The middle button joins the predicate for VERA's modern RTS layout, which
+    /// moves the pan gesture off the right button and onto the same latches.
     fn right_drag_owns_frame(&self) -> bool {
-        self.captured && self.right_held && !self.left_held
+        self.captured && (self.right_held || self.middle_held) && !self.left_held
     }
 
     /// One admitted GScreen input poll: 0x692F30 -> 0x693440. Message edges
@@ -1488,9 +1531,16 @@ pub(crate) fn apply_zoom(state: &mut AppState, delta_lines: f32) {
 /// resolution at a 1280x800 reference frame while the frame stays the window's.
 ///
 /// Wheel up selects the next smaller view distance (zoom in); wheel down
-/// selects the next larger one. Cycling clamps at both ends.
+/// selects the next larger one. Cycling clamps at both ends. The zoom-in side
+/// reaches 3x (`Smallest`), below `MAX_ZOOM`; upward past 1x each rung
+/// magnifies the natively resolved world (`render::upscale_pass::WorldZoomPass`),
+/// so no extra world detail appears at the closest rungs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum ViewDistanceTier {
+    /// 3x: the closest look at a cell.
+    Smallest,
+    /// 2x: a clean whole-number magnification of the native frame.
+    Smaller,
     Small,
     #[default]
     Default,
@@ -1499,11 +1549,20 @@ pub(crate) enum ViewDistanceTier {
 }
 
 impl ViewDistanceTier {
-    pub(crate) const ALL: [Self; 4] = [Self::Small, Self::Default, Self::Large, Self::Huge];
+    pub(crate) const ALL: [Self; 6] = [
+        Self::Smallest,
+        Self::Smaller,
+        Self::Small,
+        Self::Default,
+        Self::Large,
+        Self::Huge,
+    ];
 
     /// Multiplier of the 1280x800 reference viewport.
     pub(crate) const fn scale(self) -> f32 {
         match self {
+            Self::Smallest => 1.0 / 3.0,
+            Self::Smaller => 0.5,
             Self::Small => 0.8,
             Self::Default => 1.0,
             Self::Large => 1.25,
@@ -1518,6 +1577,8 @@ impl ViewDistanceTier {
 
     pub(crate) const fn name(self) -> &'static str {
         match self {
+            Self::Smallest => "Smallest view",
+            Self::Smaller => "Smaller view",
             Self::Small => "Small view",
             Self::Default => "Default view",
             Self::Large => "Large view",
@@ -1537,6 +1598,8 @@ impl ViewDistanceTier {
     /// One step toward a larger view distance, clamped at `Huge`.
     fn larger(self) -> Self {
         match self {
+            Self::Smallest => Self::Smaller,
+            Self::Smaller => Self::Small,
             Self::Small => Self::Default,
             Self::Default => Self::Large,
             Self::Large => Self::Huge,
@@ -1544,10 +1607,12 @@ impl ViewDistanceTier {
         }
     }
 
-    /// One step toward a smaller view distance, clamped at `Small`.
+    /// One step toward a smaller view distance, clamped at `Smallest`.
     fn smaller(self) -> Self {
         match self {
-            Self::Small => Self::Small,
+            Self::Smallest => Self::Smallest,
+            Self::Smaller => Self::Smallest,
+            Self::Small => Self::Smaller,
             Self::Default => Self::Small,
             Self::Large => Self::Default,
             Self::Huge => Self::Large,
@@ -1555,9 +1620,11 @@ impl ViewDistanceTier {
     }
 }
 
-/// Apply one mouse-wheel notch's view-distance step, anchored on the
-/// tactical viewport's centre so the battlefield grows or shrinks around it.
-/// A wheel-up notch (`lines > 0`) selects the smaller view distance.
+/// Apply one mouse-wheel notch's view-distance step, anchored on the cursor so
+/// the world point under the pointer stays under it while the battlefield grows
+/// or shrinks. A wheel-up notch (`lines > 0`) selects the smaller view distance.
+///
+/// gamemd has no world zoom; this and the anchor are VERA presentation state.
 pub(crate) fn cycle_view_distance(state: &mut AppState, lines: f32) {
     if !lines.is_finite() || lines == 0.0 {
         return;
@@ -1572,17 +1639,45 @@ pub(crate) fn cycle_view_distance(state: &mut AppState, lines: f32) {
         return;
     }
 
-    set_view_distance(state, next);
+    let (width, height) = tactical_viewport_size(state);
+    let (x, y) = state.cursor_position();
+    let anchor = wheel_zoom_anchor(
+        [x, y],
+        (width as f32, height as f32),
+        cursor_over_battlefield(state),
+    );
+    set_view_distance(state, next, anchor);
 }
 
 /// Restore the stock tactical scale when the player turns wheel zoom off.
+///
+/// The Options checkbox has no pointer to hold, so the view contracts on the
+/// tactical viewport's centre — the anchor every notch took before the wheel
+/// followed the cursor.
 pub(crate) fn reset_view_distance(state: &mut AppState) {
-    set_view_distance(state, ViewDistanceTier::Default);
-}
-
-fn set_view_distance(state: &mut AppState, tier: ViewDistanceTier) {
     let (width, height) = tactical_viewport_size(state);
     let anchor = [width as f32 / 2.0, height as f32 / 2.0];
+    set_view_distance(state, ViewDistanceTier::Default, anchor);
+}
+
+/// The screen point a wheel notch holds still.
+///
+/// Over the battlefield that is the pointer itself, so the cell under the cursor
+/// keeps its place while the zoom eases; the clamp only matches the battlefield
+/// boundary for a pointer reported fractionally outside it. A pointer anywhere
+/// else (the sidebar column, the bottom strip, a stale position) falls back to
+/// the viewport centre rather than dragging the camera toward the window edge.
+fn wheel_zoom_anchor(cursor: [f32; 2], viewport: (f32, f32), over_battlefield: bool) -> [f32; 2] {
+    if !over_battlefield {
+        return [viewport.0 / 2.0, viewport.1 / 2.0];
+    }
+    [
+        cursor[0].clamp(0.0, viewport.0),
+        cursor[1].clamp(0.0, viewport.1),
+    ]
+}
+
+fn set_view_distance(state: &mut AppState, tier: ViewDistanceTier, anchor: [f32; 2]) {
     let zoom = state.match_state.input.zoom_level;
     state.match_state.input.zoom_anchor_world = [
         anchor[0] / zoom + state.match_state.input.camera_x,
@@ -2291,6 +2386,60 @@ mod tests {
         }
     }
 
+    /// VERA's modern RTS layout moves the pan gesture from the right button to
+    /// the middle one. The gesture keeps the right-drag anchors and threshold,
+    /// so the per-frame pan block and the pan cursor follow the middle button
+    /// without a second copy, and the right button no longer owns the frame.
+    #[test]
+    fn the_middle_button_carries_the_pan_gesture_in_the_modern_layout() {
+        let anchor = (200.0, 150.0);
+        let mut mouse = TacticalMouseState::default();
+        mouse.record_physical_button(winit::event::MouseButton::Middle, true);
+        mouse.begin_middle_drag(anchor);
+        assert!(mouse.middle_drag_active());
+        assert_eq!(
+            mouse.right_anchor, anchor,
+            "the same anchor the right drag uses"
+        );
+        assert_eq!(
+            mouse.poll_right_drag((203.0, 150.0), (4, 4), false, 1.0),
+            RightDragPoll::Idle,
+            "a middle click stays inside the drag threshold"
+        );
+        assert!(
+            mouse.right_drag_owns_frame(),
+            "the middle button owns the frame"
+        );
+        assert_eq!(
+            mouse.poll_right_drag((220.0, 150.0), (4, 4), false, 1.0),
+            RightDragPoll::Pan,
+            "past the threshold the middle drag pans"
+        );
+        mouse.record_physical_button(winit::event::MouseButton::Middle, false);
+        mouse.end_middle_drag();
+        assert!(!mouse.middle_drag_active());
+        assert!(!mouse.right_drag_owns_frame(), "the gesture is over");
+    }
+
+    /// The left button keeps its precedence over the gesture, whichever button
+    /// armed it. A left press landing mid-pan arms no band box (the shared
+    /// capture byte is held) but still records the physical button, and the
+    /// per-frame block tests the live buttons first — so the pan freezes until
+    /// that left button comes up.
+    #[test]
+    fn a_left_press_freezes_a_middle_pan() {
+        let mut mouse = TacticalMouseState::default();
+        mouse.record_physical_button(winit::event::MouseButton::Middle, true);
+        mouse.begin_middle_drag((200.0, 150.0));
+        mouse.poll_right_drag((220.0, 150.0), (4, 4), false, 1.0);
+        assert!(mouse.right_drag_owns_frame());
+        assert!(
+            !mouse.begin_left_press(),
+            "the middle drag already holds the capture"
+        );
+        assert!(!mouse.right_drag_owns_frame(), "left freezes the pan");
+    }
+
     #[test]
     fn tactical_tooltip_gate_reads_focus_rate_independently_of_pending_scroll() {
         let mut pending = PendingCameraScroll::default();
@@ -2948,6 +3097,8 @@ mod camera_bounds_tests;
 #[test]
 fn view_distance_tiers_match_the_1280_reference_and_clamp_at_the_ends() {
     let expected = [
+        (1.0 / 3.0, 426, 266),
+        (0.5, 640, 400),
         (0.8, 1024, 640),
         (1.0, 1280, 800),
         (1.25, 1600, 1000),
@@ -2963,7 +3114,20 @@ fn view_distance_tiers_match_the_1280_reference_and_clamp_at_the_ends() {
             tier.name()
         );
     }
-    assert_eq!(ViewDistanceTier::Small.smaller(), ViewDistanceTier::Small);
+    assert_eq!(
+        ViewDistanceTier::Smallest.smaller(),
+        ViewDistanceTier::Smallest
+    );
+    assert_eq!(
+        ViewDistanceTier::Smallest.larger(),
+        ViewDistanceTier::Smaller
+    );
+    assert_eq!(
+        ViewDistanceTier::Smaller.smaller(),
+        ViewDistanceTier::Smallest
+    );
+    assert_eq!(ViewDistanceTier::Smaller.larger(), ViewDistanceTier::Small);
+    assert_eq!(ViewDistanceTier::Small.smaller(), ViewDistanceTier::Smaller);
     assert_eq!(ViewDistanceTier::Small.larger(), ViewDistanceTier::Default);
     assert_eq!(ViewDistanceTier::Default.larger(), ViewDistanceTier::Large);
     assert_eq!(ViewDistanceTier::Default.smaller(), ViewDistanceTier::Small);
@@ -2975,6 +3139,100 @@ fn view_distance_tiers_match_the_1280_reference_and_clamp_at_the_ends() {
     assert_eq!(ViewDistanceTier::nearest(0.79), ViewDistanceTier::Large);
     assert_eq!(ViewDistanceTier::nearest(1.0), ViewDistanceTier::Default);
     assert_eq!(ViewDistanceTier::nearest(1.2), ViewDistanceTier::Small);
+}
+
+/// A new match opens at 200%, which is the `Smaller` rung of the wheel ladder:
+/// the value the player asked for must stay a rung the wheel can leave again.
+#[test]
+fn a_new_match_opens_on_the_two_times_rung() {
+    assert_eq!(DEFAULT_MATCH_ZOOM, 2.0);
+    assert_eq!(DEFAULT_MATCH_ZOOM, ViewDistanceTier::Smaller.zoom());
+    assert_eq!(
+        ViewDistanceTier::nearest(DEFAULT_MATCH_ZOOM),
+        ViewDistanceTier::Smaller
+    );
+    assert!((MIN_ZOOM..=MAX_ZOOM).contains(&DEFAULT_MATCH_ZOOM));
+}
+
+/// The wheel used to contract the view on the tactical viewport's centre, so an
+/// off-centre pointer saw the battlefield slide. The notch now holds the world
+/// point under the pointer, and only falls back to the centre without one.
+#[test]
+fn wheel_zoom_holds_the_world_point_under_the_pointer() {
+    let viewport = (1280.0, 800.0);
+    let centre = [viewport.0 / 2.0, viewport.1 / 2.0];
+    for cursor in [[100.0, 50.0], [640.0, 400.0], [1279.0, 799.0], [0.0, 0.0]] {
+        assert_eq!(
+            wheel_zoom_anchor(cursor, viewport, true),
+            cursor,
+            "the anchor is the pointer at {cursor:?}"
+        );
+    }
+    assert_eq!(
+        wheel_zoom_anchor([100.0, 50.0], viewport, true),
+        [100.0, 50.0]
+    );
+    // The old behaviour: this pointer's notch would have anchored on the centre.
+    assert_ne!(
+        wheel_zoom_anchor([100.0, 50.0], viewport, true),
+        centre,
+        "an off-centre pointer must not be replaced by the viewport centre"
+    );
+    // A pointer off the battlefield (sidebar column, bottom strip, stale
+    // position) keeps the centre rather than dragging the camera to an edge.
+    assert_eq!(wheel_zoom_anchor([1300.0, 40.0], viewport, false), centre);
+}
+
+/// The hold point never leaves the battlefield, even for a pointer reported
+/// fractionally past its edge.
+#[test]
+fn the_wheel_zoom_anchor_stays_inside_the_tactical_viewport() {
+    let viewport = (1280.0, 800.0);
+    assert_eq!(
+        wheel_zoom_anchor([-20.0, 900.0], viewport, true),
+        [0.0, 800.0]
+    );
+    assert_eq!(
+        wheel_zoom_anchor([1400.0, -5.0], viewport, true),
+        [1280.0, 0.0]
+    );
+}
+
+/// The wheel's zoom-in ladder used to stop at `Small` (1.25x). It now reaches
+/// 3x, and every rung must stay inside the range a saved tactical view may
+/// restore (`MIN_ZOOM..=MAX_ZOOM`), or a zooms-in save would be rejected.
+#[test]
+fn wheel_zoom_in_reaches_three_times_inside_the_saved_view_clamp() {
+    for (tier, zoom) in [
+        (ViewDistanceTier::Smallest, 3.0),
+        (ViewDistanceTier::Smaller, 2.0),
+        (ViewDistanceTier::Small, 1.25),
+        (ViewDistanceTier::Default, 1.0),
+    ] {
+        assert!(
+            (tier.zoom() - zoom).abs() < 1e-5,
+            "{} is {}x, expected {zoom}x",
+            tier.name(),
+            tier.zoom()
+        );
+    }
+    let mut tier = ViewDistanceTier::Default;
+    let mut notches = 0;
+    while tier != ViewDistanceTier::Smallest {
+        tier = tier.smaller();
+        notches += 1;
+        assert!(notches < 16, "the zoom-in ladder never clamps");
+    }
+    assert_eq!(notches, 3);
+    // Nothing the wheel reaches may fall outside a restorable saved view.
+    for tier in ViewDistanceTier::ALL {
+        assert!(
+            (MIN_ZOOM..=MAX_ZOOM).contains(&tier.zoom()),
+            "{} at {}x is outside the saved-view clamp",
+            tier.name(),
+            tier.zoom()
+        );
+    }
 }
 
 /// Half a tile on **both** axes from the tile corner — the Y half is the one

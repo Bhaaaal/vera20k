@@ -779,15 +779,92 @@ const VERA_COMMANDS: [CommandMetadata; 1] = [command!(
 /// `FireTacticalSW.ini` reads the CSF keys `TXT_FIRE_TACTICAL_SW_XX[_DESC]`.
 #[cfg(feature = "phobos")]
 const PHOBOS_COMMANDS: [CommandMetadata; 11] = [
-    command!(HotkeyCommand::FireTacticalSw(0), "FireTacticalSW1", "TXT_FIRE_TACTICAL_SW_XX", "TXT_INTERFACE", "TXT_FIRE_TACTICAL_SW_XX_DESC", Some(1)),
-    command!(HotkeyCommand::FireTacticalSw(1), "FireTacticalSW2", "TXT_FIRE_TACTICAL_SW_XX", "TXT_INTERFACE", "TXT_FIRE_TACTICAL_SW_XX_DESC", Some(2)),
-    command!(HotkeyCommand::FireTacticalSw(2), "FireTacticalSW3", "TXT_FIRE_TACTICAL_SW_XX", "TXT_INTERFACE", "TXT_FIRE_TACTICAL_SW_XX_DESC", Some(3)),
-    command!(HotkeyCommand::FireTacticalSw(3), "FireTacticalSW4", "TXT_FIRE_TACTICAL_SW_XX", "TXT_INTERFACE", "TXT_FIRE_TACTICAL_SW_XX_DESC", Some(4)),
-    command!(HotkeyCommand::FireTacticalSw(4), "FireTacticalSW5", "TXT_FIRE_TACTICAL_SW_XX", "TXT_INTERFACE", "TXT_FIRE_TACTICAL_SW_XX_DESC", Some(5)),
-    command!(HotkeyCommand::FireTacticalSw(5), "FireTacticalSW6", "TXT_FIRE_TACTICAL_SW_XX", "TXT_INTERFACE", "TXT_FIRE_TACTICAL_SW_XX_DESC", Some(6)),
-    command!(HotkeyCommand::FireTacticalSw(6), "FireTacticalSW7", "TXT_FIRE_TACTICAL_SW_XX", "TXT_INTERFACE", "TXT_FIRE_TACTICAL_SW_XX_DESC", Some(7)),
-    command!(HotkeyCommand::FireTacticalSw(7), "FireTacticalSW8", "TXT_FIRE_TACTICAL_SW_XX", "TXT_INTERFACE", "TXT_FIRE_TACTICAL_SW_XX_DESC", Some(8)),
-    command!(HotkeyCommand::FireTacticalSw(8), "FireTacticalSW9", "TXT_FIRE_TACTICAL_SW_XX", "TXT_INTERFACE", "TXT_FIRE_TACTICAL_SW_XX_DESC", Some(9)),
-    command!(HotkeyCommand::FireTacticalSw(9), "FireTacticalSW10", "TXT_FIRE_TACTICAL_SW_XX", "TXT_INTERFACE", "TXT_FIRE_TACTICAL_SW_XX_DESC", Some(10)),
-    command!(HotkeyCommand::ToggleSwSidebar, "Toggle Super Weapon Sidebar", "TXT_TOGGLE_SW_SIDEBAR", "TXT_INTERFACE", "TXT_TOGGLE_SW_SIDEBAR_DESC", None),
+    command!(
+        HotkeyCommand::FireTacticalSw(0),
+        "FireTacticalSW1",
+        "TXT_FIRE_TACTICAL_SW_XX",
+        "TXT_INTERFACE",
+        "TXT_FIRE_TACTICAL_SW_XX_DESC",
+        Some(1)
+    ),
+    command!(
+        HotkeyCommand::FireTacticalSw(1),
+        "FireTacticalSW2",
+        "TXT_FIRE_TACTICAL_SW_XX",
+        "TXT_INTERFACE",
+        "TXT_FIRE_TACTICAL_SW_XX_DESC",
+        Some(2)
+    ),
+    command!(
+        HotkeyCommand::FireTacticalSw(2),
+        "FireTacticalSW3",
+        "TXT_FIRE_TACTICAL_SW_XX",
+        "TXT_INTERFACE",
+        "TXT_FIRE_TACTICAL_SW_XX_DESC",
+        Some(3)
+    ),
+    command!(
+        HotkeyCommand::FireTacticalSw(3),
+        "FireTacticalSW4",
+        "TXT_FIRE_TACTICAL_SW_XX",
+        "TXT_INTERFACE",
+        "TXT_FIRE_TACTICAL_SW_XX_DESC",
+        Some(4)
+    ),
+    command!(
+        HotkeyCommand::FireTacticalSw(4),
+        "FireTacticalSW5",
+        "TXT_FIRE_TACTICAL_SW_XX",
+        "TXT_INTERFACE",
+        "TXT_FIRE_TACTICAL_SW_XX_DESC",
+        Some(5)
+    ),
+    command!(
+        HotkeyCommand::FireTacticalSw(5),
+        "FireTacticalSW6",
+        "TXT_FIRE_TACTICAL_SW_XX",
+        "TXT_INTERFACE",
+        "TXT_FIRE_TACTICAL_SW_XX_DESC",
+        Some(6)
+    ),
+    command!(
+        HotkeyCommand::FireTacticalSw(6),
+        "FireTacticalSW7",
+        "TXT_FIRE_TACTICAL_SW_XX",
+        "TXT_INTERFACE",
+        "TXT_FIRE_TACTICAL_SW_XX_DESC",
+        Some(7)
+    ),
+    command!(
+        HotkeyCommand::FireTacticalSw(7),
+        "FireTacticalSW8",
+        "TXT_FIRE_TACTICAL_SW_XX",
+        "TXT_INTERFACE",
+        "TXT_FIRE_TACTICAL_SW_XX_DESC",
+        Some(8)
+    ),
+    command!(
+        HotkeyCommand::FireTacticalSw(8),
+        "FireTacticalSW9",
+        "TXT_FIRE_TACTICAL_SW_XX",
+        "TXT_INTERFACE",
+        "TXT_FIRE_TACTICAL_SW_XX_DESC",
+        Some(9)
+    ),
+    command!(
+        HotkeyCommand::FireTacticalSw(9),
+        "FireTacticalSW10",
+        "TXT_FIRE_TACTICAL_SW_XX",
+        "TXT_INTERFACE",
+        "TXT_FIRE_TACTICAL_SW_XX_DESC",
+        Some(10)
+    ),
+    command!(
+        HotkeyCommand::ToggleSwSidebar,
+        "Toggle Super Weapon Sidebar",
+        "TXT_TOGGLE_SW_SIDEBAR",
+        "TXT_INTERFACE",
+        "TXT_TOGGLE_SW_SIDEBAR_DESC",
+        None
+    ),
 ];
