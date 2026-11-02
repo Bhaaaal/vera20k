@@ -5,8 +5,8 @@
 
 use crate::sim::trigger_runtime::ThemeRequest;
 use crate::ui::shell::list::ListMetrics;
-use std::sync::Arc;
 use crate::util::time::Instant;
+use std::sync::Arc;
 
 use super::{App, AppState};
 use crate::app::frontend::credits_roll::{

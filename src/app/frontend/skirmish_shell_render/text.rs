@@ -36,6 +36,11 @@ use super::{
 };
 
 pub(super) fn localized_label(state: &AppState, key: &str, fallback: &str) -> String {
+    // A VERA-only control has no retail string entry: its empty key means the
+    // fallback label is the text, not a `MISSING:'…'` marker.
+    if key.is_empty() {
+        return fallback.to_string();
+    }
     state
         .process_assets
         .csf
@@ -51,6 +56,9 @@ pub(super) fn checkbox_label(id: SkirmishCheckboxId) -> (&'static str, &'static 
         SkirmishCheckboxId::CratesAppear0x696 => ("GUI:CratesAppear", "Crates Appear"),
         SkirmishCheckboxId::SuperWeapons0x69a => ("GUI:SuperWeaponsAllowed", "Super Weapons"),
         SkirmishCheckboxId::BuildOffAlly0x69d => ("GUI:BuildOffAlly", "Build Off Ally"),
+        // VERA's own control, so retail's CSF has no entry and the fallback
+        // label is what every install shows.
+        SkirmishCheckboxId::TestMode0x6a1 => ("", "Test Mode"),
     }
 }
 
@@ -655,6 +663,9 @@ pub(super) fn build_shell_text_draws(
     push_player_name_edit_text_draw(&mut shell_draws, state, shell, layout);
 
     for checkbox in layout.checkboxes {
+        if !crate::ui::skirmish_shell::checkbox_available(checkbox.id) {
+            continue;
+        }
         let (key, fallback) = checkbox_label(checkbox.id);
         let label = localized_label(state, key, fallback);
         push_label_draw(

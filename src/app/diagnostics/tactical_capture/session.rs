@@ -5,8 +5,8 @@
 //! the real renderer, and publishes one transactional final readback. It does
 //! not focus the window, inject desktop input, or grant simulation state.
 
-use std::path::Path;
 use crate::util::time::{Duration, Instant};
+use std::path::Path;
 
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Value, json};

@@ -11,8 +11,8 @@
 //! locate is pending). The lobby's `DisplayBuddies` filter (`0x0077D4C0`)
 //! and `0x116`'s rows (`0x0079AF10`) read them. No RNG is drawn here.
 
-use std::collections::{HashMap, VecDeque};
 use crate::util::time::{Duration, Instant};
+use std::collections::{HashMap, VecDeque};
 
 use super::service::{self, WolLadderRecord, WolServiceRequest};
 use crate::app::AppState;

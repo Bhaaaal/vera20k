@@ -358,6 +358,10 @@ pub struct SkirmishShellState {
     pub launch_options_base: SkirmishLaunchOptions,
     pub short_game: bool,
     pub super_weapons: bool,
+    /// VERA's Test Mode switch: the offline trainer (infinite money, instant
+    /// build, full map vision) plus the test HUD. Starts checked in a build
+    /// that carries `debug-tools`, unchecked elsewhere.
+    pub test_mode: bool,
     pub build_off_ally: bool,
     pub crates: bool,
     pub mcv_redeploy: bool,
@@ -444,6 +448,7 @@ impl Default for SkirmishShellState {
             launch_options_base: SkirmishLaunchOptions::default(),
             short_game: options.short_game,
             super_weapons: options.super_weapons,
+            test_mode: cfg!(feature = "dev-overlays"),
             build_off_ally: options.build_off_ally,
             crates: options.crates,
             mcv_redeploy: options.mcv_redeploy,
@@ -500,7 +505,9 @@ impl SkirmishShellState {
 /// A hover message to the status line ([`SkirmishStatics::hover`]). Returns
 /// whether the help changed.
 pub fn set_status_help_text(state: &mut SkirmishShellState, text: impl Into<String>) -> bool {
-    state.statics.hover(&text.into(), crate::util::time::Instant::now())
+    state
+        .statics
+        .hover(&text.into(), crate::util::time::Instant::now())
 }
 
 pub fn clear_status_help_text(state: &mut SkirmishShellState) -> bool {
@@ -601,6 +608,14 @@ pub fn initialize_rows_for_selected_map(state: &mut SkirmishShellState, maps: &[
 #[cfg(test)]
 mod multiplayer_dialog_value_tests {
     use super::*;
+
+    #[test]
+    fn test_mode_starts_checked_only_in_a_build_that_carries_the_trainer() {
+        // The switch is VERA's own: a dev-overlay build opens on it, and
+        // one without the trainer opens off rather than pretending it works.
+        let shell = SkirmishShellState::default();
+        assert_eq!(shell.test_mode, cfg!(feature = "dev-overlays"));
+    }
 
     #[test]
     fn default_shell_launch_base_matches_hardcoded_defaults() {

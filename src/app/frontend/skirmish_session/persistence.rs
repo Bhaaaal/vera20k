@@ -51,6 +51,9 @@ pub struct SkirmishGlobalDefaults {
     pub build_off_ally: bool,
     pub mcv_repacks: bool,
     pub crates_appear: bool,
+    /// VERA's Test Mode switch (`[Skirmish] TestMode=`). A VERA-only key: the
+    /// native reader ignores it, and a build without the trainer stores `no`.
+    pub test_mode: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,6 +97,9 @@ pub struct MultiplayerSetupSnapshot {
     /// 005ED542/005EDC99; source: original gamemd.exe). VERA extends that
     /// same process profile through row29; only the native prefix reaches INI.
     pub slots: [SkirmishPersistedSlot; RETAINED_SETUP_SLOT_COUNT],
+    /// VERA's Test Mode switch, saved beside the retail checkboxes so the
+    /// player's choice survives a restart.
+    pub test_mode: bool,
 }
 
 impl MultiplayerSetupSnapshot {
@@ -110,6 +116,7 @@ impl MultiplayerSetupSnapshot {
             build_off_ally: defaults.build_off_ally,
             mcv_repacks: defaults.mcv_repacks,
             crates_appear: defaults.crates_appear,
+            test_mode: defaults.test_mode,
             slots: std::array::from_fn(|index| {
                 let mut slot = SkirmishPersistedSlot::native_default(index);
                 // 00698456/0069846F: LAN and WOL read with defaults 2/2.
@@ -123,7 +130,7 @@ impl MultiplayerSetupSnapshot {
 
     /// Return all persisted key/value pairs in native writer order.
     pub fn ini_updates(&self) -> Vec<(String, String)> {
-        let mut updates = Vec::with_capacity(10 + SKIRMISH_PERSISTED_SLOT_COUNT);
+        let mut updates = Vec::with_capacity(11 + SKIRMISH_PERSISTED_SLOT_COUNT);
         updates.push(("GameMode".to_string(), self.game_mode.to_string()));
         updates.push(("ScenIndex".to_string(), self.scenario_index.to_string()));
         updates.push(("GameSpeed".to_string(), self.game_speed.to_string()));
@@ -146,6 +153,9 @@ impl MultiplayerSetupSnapshot {
             "CratesAppear".to_string(),
             yes_no(self.crates_appear).to_string(),
         ));
+        // VERA's own switch, written after the retail keys so their order is
+        // untouched.
+        updates.push(("TestMode".to_string(), yes_no(self.test_mode).to_string()));
         for (index, slot) in self
             .slots
             .iter()
@@ -193,6 +203,7 @@ pub fn read_setup_snapshot(
     snapshot.build_off_ally = section.read_bool("BuildOffAlly", snapshot.build_off_ally);
     snapshot.mcv_repacks = section.read_bool("MCVRepacks", snapshot.mcv_repacks);
     snapshot.crates_appear = section.read_bool("CratesAppear", snapshot.crates_appear);
+    snapshot.test_mode = section.read_bool("TestMode", snapshot.test_mode);
 
     for (slot_index, slot) in snapshot
         .slots
@@ -241,6 +252,7 @@ mod tests {
             build_off_ally: true,
             mcv_repacks: true,
             crates_appear: true,
+            test_mode: true,
         }
     }
 
@@ -292,6 +304,27 @@ mod tests {
             read_setup_snapshot(&updated, defaults(), SetupProfile::Lan).unwrap(),
             snapshot
         );
+    }
+
+    #[test]
+    fn test_mode_round_trips_beside_the_retail_skirmish_keys() {
+        let input = b"[Skirmish]\nSuperWeaponsAllowed=yes\n";
+        let mut snapshot = read_setup_snapshot(input, defaults(), SetupProfile::Skirmish).unwrap();
+        assert!(
+            snapshot.test_mode,
+            "an absent key keeps the caller's default"
+        );
+        snapshot.test_mode = false;
+        let updated = snapshot.update_ini_bytes(input);
+        let text = String::from_utf8_lossy(&updated).into_owned();
+        assert!(text.contains("TestMode=no"), "{text}");
+        assert!(
+            text.find("SuperWeaponsAllowed").unwrap() < text.find("TestMode").unwrap(),
+            "VERA's key follows the retail ones: {text}"
+        );
+        let reread = read_setup_snapshot(&updated, defaults(), SetupProfile::Skirmish).unwrap();
+        assert!(!reread.test_mode);
+        assert!(reread.super_weapons_allowed, "the retail key is untouched");
     }
 
     #[test]
@@ -382,7 +415,7 @@ Slot02=5,-2,-2
         let output = String::from_utf8(snapshot.update_ini_bytes(b"")).unwrap();
         let expected = "[Skirmish]\r\nGameMode=3\r\nScenIndex=162\r\nGameSpeed=1\r\n\
 Credits=10000\r\nUnitCount=10\r\nShortGame=no\r\nSuperWeaponsAllowed=yes\r\n\
-BuildOffAlly=yes\r\nMCVRepacks=yes\r\nCratesAppear=yes\r\nSlot01=6,8,1\r\n\
+BuildOffAlly=yes\r\nMCVRepacks=yes\r\nCratesAppear=yes\r\nTestMode=yes\r\nSlot01=6,8,1\r\n\
 Slot02=1,-2,-2\r\nSlot03=1,-2,-2\r\nSlot04=1,-2,-2\r\n\
 Slot05=1,-2,-2\r\nSlot06=1,-2,-2\r\nSlot07=1,-2,-2\r\n";
         assert_eq!(output, expected);

@@ -47,7 +47,9 @@ verax = []
 # VERA20K's opt-in bug-fix extension adopting the NPExt changelog corrections;
 # builds without it keep every native path.
 npbug = []
-# The client's Ctrl+Shift dev chord reaches simulation and utility hooks.
+# The client's Ctrl+Shift dev chord reaches simulation and utility hooks. Its
+# trainer (the Skirmish screen's Test Mode switch) is enabled from the client
+# package's `dev-overlays`, which also turns on `debug-tools` here.
 dev-overlays = []
 # Read-only snapshots and opt-in frame timing for the browser dashboard.
 telemetry = []

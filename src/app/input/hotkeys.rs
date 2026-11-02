@@ -1089,6 +1089,25 @@ mod tests {
         );
     }
 
+    /// The modern layout's bare A attack key is read by the keyboard owner
+    /// before retail key resolution, so the binding table must not claim the
+    /// letter either — the key has to reach that chord.
+    #[test]
+    fn a_bare_a_stays_unhandled_for_the_modern_attack_key() {
+        let bindings = HotkeyBindings::default();
+        let key = character("a");
+        assert_eq!(
+            bindings.resolve(&key, KeyLocation::Standard, ModifiersState::empty()),
+            None,
+            "no stock binding takes the letter A"
+        );
+        assert_eq!(
+            bindings.resolve_event(&key, KeyLocation::Standard, ModifiersState::empty()),
+            HotkeyResolution::Unhandled,
+            "nothing in the default table claims it"
+        );
+    }
+
     /// The five `AcceptsModifiers` overrides, against the stock bare-key
     /// bindings: TypeSelect=84 (T), CombatantSelect=80 (P), VeterancyNav=89 (Y),
     /// PlanningMode=90 (Z), plus StopObject=83 (S) as the unmodified default.

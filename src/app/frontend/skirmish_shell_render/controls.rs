@@ -278,6 +278,7 @@ pub(super) fn checkbox_checked(shell: &SkirmishShellState, id: SkirmishCheckboxI
         SkirmishCheckboxId::CratesAppear0x696 => shell.crates,
         SkirmishCheckboxId::SuperWeapons0x69a => shell.super_weapons,
         SkirmishCheckboxId::BuildOffAlly0x69d => shell.build_off_ally,
+        SkirmishCheckboxId::TestMode0x6a1 => shell.test_mode,
     }
 }
 
@@ -761,6 +762,9 @@ pub(super) fn push_checkbox_instances(
     // draw-list test).
     let chrome = atlas.control_chrome();
     for checkbox in layout.checkboxes {
+        if !crate::ui::skirmish_shell::checkbox_available(checkbox.id) {
+            continue;
+        }
         paint_control(
             out,
             &chrome,

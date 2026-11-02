@@ -1089,6 +1089,7 @@ impl App {
                     crate::app::match_runtime::frame_pacer::ScenarioElapsedClock::new(),
                 configured_input_delay_ticks: input_delay_ticks,
                 sandbox_full_visibility: false,
+                test_mode: false,
                 debug_pause: false,
                 // KD-3: unify the two game-speed sources. `in_game_options.game_speed`
                 // (in the presentation owner) is the single source of truth; seed it
@@ -1203,6 +1204,8 @@ impl App {
                 gpu,
                 batch_renderer,
                 fps_overlay,
+                #[cfg(feature = "dev-overlays")]
+                test_hud: Default::default(),
                 combat_light_renderer,
                 screen_presentation:
                     crate::render::screen_presentation::ScreenPresentationPass::new(),

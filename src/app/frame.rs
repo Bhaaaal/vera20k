@@ -266,6 +266,11 @@ impl App {
         crate::app::telemetry_capture::synchronize_observer(state);
         #[cfg(feature = "debug-tools")]
         crate::app::debug_tools::service(state);
+        // Dev builds without the dashboard reach the same trainer here: the
+        // Skirmish screen's Test Mode switch (money, instant build, reveal,
+        // test HUD).
+        #[cfg(all(feature = "dev-overlays", not(feature = "debug-tools")))]
+        crate::app::test_mode::service(state);
         // HouseClass keeps simulating for SavourDelay, then blocks on the
         // current outcome Vox before it raises the victory/defeat exit global.
         // Drive that gate before deciding whether another sim frame is legal.
@@ -1233,6 +1238,16 @@ impl App {
             &mut encoder,
             &output.texture,
         );
+        // The test HUD rides the same final window surface, so it neither scales
+        // with the camera zoom nor with the Options whole-frame zoom. A capture
+        // session owns every pixel it records, so the HUD stays out of it.
+        #[cfg(feature = "dev-overlays")]
+        if state.frontend.screen == GameScreen::InGame
+            && shell_capture.is_none()
+            && tactical_capture.is_none()
+        {
+            crate::app::diagnostics::test_hud::encode(state, &mut encoder, &output.texture);
+        }
         if state.frontend.screen == GameScreen::InGame {
             let status = state
                 .match_state

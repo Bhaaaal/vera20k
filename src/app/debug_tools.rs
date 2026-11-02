@@ -116,10 +116,16 @@ fn context(
 
 /// Runs outside tick admission so a paused game can answer a control request.
 pub(crate) fn service(state: &mut crate::app::AppState) {
-    let active = state.diag.telemetry_active()
-        && state.frontend.screen == crate::ui::game_screen::GameScreen::InGame
-        && state.match_state.scenario_exit.is_none()
-        && state.match_state.scenario_outcome.is_none();
+    // The skirmish screen's Test Mode switch admits the same owner without the
+    // dashboard: infinite money, instant build and full map vision, plus the
+    // test HUD. The simulation still refuses the writes in a network or replay
+    // session, so a stray switch cannot desync anyone.
+    let test_mode = state.match_state.test_mode;
+    let active = test_mode
+        || (state.diag.telemetry_active()
+            && state.frontend.screen == crate::ui::game_screen::GameScreen::InGame
+            && state.match_state.scenario_exit.is_none()
+            && state.match_state.scenario_outcome.is_none());
     let context = context(state.match_state.session_mode(), active);
     let allowed = if let Some(runtime) = state.match_state.sim_runtime.as_mut() {
         runtime.simulation.set_debug_session_context(context);
@@ -129,6 +135,9 @@ pub(crate) fn service(state: &mut crate::app::AppState) {
     } else {
         false
     };
+    if test_mode {
+        apply_test_mode(state, allowed);
+    }
     let epoch = state.diag.debug_session_epoch;
     let commands = if let Some(server) = state.diag.telemetry_server.as_ref() {
         server.set_debug_session((allowed && epoch != 0).then_some(epoch));
@@ -156,6 +165,44 @@ fn close_unmodified_recording(state: &mut crate::app::AppState) {
         .is_some_and(|runtime| !runtime.simulation.trainer_modified())
     {
         crate::app::match_runtime::sim_tick::close_replay_segment_for_new_timeline(state);
+    }
+}
+
+/// The skirmish screen's Test Mode switch, on the trainer's own flags: infinite
+/// money, instant build, full map vision, and the test HUD (which Ctrl+Shift+F6
+/// still toggles on its own). Re-asserted each frame so a dashboard request or a
+/// fresh replay segment cannot quietly drop it, and only ever through the
+/// trainer's offline admission (`allowed`).
+fn apply_test_mode(state: &mut crate::app::AppState, allowed: bool) {
+    #[cfg(feature = "dev-overlays")]
+    if !state.renderer.test_hud.is_visible() {
+        state.renderer.test_hud.set_visible(true);
+    }
+    if !allowed {
+        return;
+    }
+    let wanted = CheatFlags {
+        infinite_money: true,
+        money_target: crate::sim::cheats::MAX_MONEY_TARGET,
+        instant_build: true,
+        super_weapon_ready: true,
+        reveal_map: true,
+        ..CheatFlags::default()
+    };
+    let Some(current) = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .map(|runtime| runtime.simulation.cheat_flags())
+    else {
+        return;
+    };
+    if current != wanted {
+        // Says from the log that the switch actually reached the trainer; a
+        // match that logs `Test Mode: trainer admission armed` in
+        // `loading::transitions` without this line never admitted it.
+        log::info!("Test Mode: trainer flags applied (money, instant build, reveal)");
+        set_flags(state, wanted);
     }
 }
 

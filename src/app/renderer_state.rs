@@ -13,6 +13,10 @@ pub(crate) struct RendererState {
     pub(crate) gpu: GpuContext,
     pub(crate) batch_renderer: BatchRenderer,
     pub(crate) fps_overlay: crate::app::diagnostics::fps_overlay::FpsOverlay,
+    /// The test-mode HUD's shown/hidden state; it draws through `fps_overlay`
+    /// on the window's bottom-left corner (see `diagnostics::test_hud`).
+    #[cfg(feature = "dev-overlays")]
+    pub(crate) test_hud: crate::app::diagnostics::test_hud::TestHud,
     pub(crate) terrain_draw_renderer: crate::render::terrain_draw::TerrainDrawRenderer,
     pub(crate) combat_light_renderer: crate::render::combat_light::CombatLightRenderer,
     /// Process GPU resources for the native final client-pixel shake copy.

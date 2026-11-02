@@ -125,6 +125,14 @@ CAPABILITIES: tuple[Capability, ...] = (
         "per-unit event hooks over the dev overlays.",
     ),
     Capability(
+        "dev-overlays",
+        ("dev-overlays",),
+        "Source builds' Ctrl+Shift dev chord and the engine trainer behind the "
+        "Skirmish screen's Test Mode switch. It is a default feature; the "
+        "release workflow's --no-default-features build carries neither.",
+        test=False,
+    ),
+    Capability(
         "telemetry-dashboard",
         ("telemetry-dashboard",),
         "The optional read-only browser dashboard on its own, without the "

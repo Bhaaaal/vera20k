@@ -7,10 +7,10 @@
 //! Source decoding, generated W staging and cache installation have one shared
 //! owner with WOL in shell_network_setup::maps and map::source.
 
+use crate::util::time::{Duration, Instant};
 use std::net::SocketAddrV4;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
-use crate::util::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow, ensure};
 

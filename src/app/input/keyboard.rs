@@ -25,6 +25,22 @@ pub(crate) struct InGameKeyEdge<'a> {
     pub text: Option<&'a str>,
 }
 
+/// A bare modifier press: it never abandons the armed A attack mode, so
+/// starting Ctrl for a force fire, or Shift for a queue, keeps the mode.
+fn is_modifier_key(code: KeyCode) -> bool {
+    matches!(
+        code,
+        KeyCode::ShiftLeft
+            | KeyCode::ShiftRight
+            | KeyCode::ControlLeft
+            | KeyCode::ControlRight
+            | KeyCode::AltLeft
+            | KeyCode::AltRight
+            | KeyCode::SuperLeft
+            | KeyCode::SuperRight
+    )
+}
+
 pub(crate) fn in_game_key_edge(
     state: &mut AppState,
     edge: InGameKeyEdge<'_>,
@@ -56,6 +72,30 @@ pub(crate) fn in_game_key_edge(
                 if enabled { "ON" } else { "OFF" }
             );
         }
+        return;
+    }
+    // Modern RTS controls: any other key press abandons the armed A attack
+    // mode before that key does its own work, so interrupting S (Stop) also
+    // drops the pending attack.
+    if edge.state.is_pressed()
+        && !edge.repeat
+        && edge.physical != KeyCode::KeyA
+        && !is_modifier_key(edge.physical)
+    {
+        crate::app::input::dispatch::cancel_attack_mode(state);
+    }
+    // Modern RTS controls: a bare A arms attack move before any retail key
+    // resolution, so the key works on every profile (a retail keyboard.ini may
+    // bind the letter) and the next click can issue the attack order.
+    if edge.physical == KeyCode::KeyA
+        && edge.state.is_pressed()
+        && !edge.repeat
+        && !modifiers.control_key()
+        && !modifiers.shift_key()
+        && !modifiers.alt_key()
+        && crate::app::input::dispatch::modern_rts_controls(state)
+    {
+        crate::app::input::dispatch::toggle_attack_mode(state);
         return;
     }
     let is_escape = matches!(edge.logical, Key::Named(NamedKey::Escape));

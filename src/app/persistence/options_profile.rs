@@ -140,6 +140,13 @@ pub(crate) struct RetailOptionsProfile {
     /// `[VERA] MouseWheelZoom=`: let the mouse wheel change the battle's
     /// view distance. Off by default; this is a local camera preference.
     pub(crate) mouse_wheel_zoom: bool,
+    /// `[VERA] ModernRtsControls=`: the modern RTS layout on the battlefield.
+    /// Right-click gives orders, left-click selects, band-selects and places
+    /// buildings, middle-drag pans the view, and a left click on empty ground
+    /// clears the selection. Off by default, so a stock profile keeps gamemd's
+    /// left-orders / right-pan layout. The sidebar, radar and shell keep their
+    /// retail buttons either way.
+    pub(crate) modern_rts_controls: bool,
     /// `[VERA] LockCursor=`: keep the pointer inside the game window. On
     /// unless the player turns it off.
     pub(crate) lock_cursor: bool,
@@ -266,6 +273,7 @@ impl Default for RetailOptionsProfile {
             skip_startup_logo: false,
             render_interpolation: false,
             mouse_wheel_zoom: false,
+            modern_rts_controls: false,
             lock_cursor: true,
             window_maximized: false,
             house_color_strength: crate::rules::house_colors::STRENGTH_RETAIL,
@@ -294,7 +302,7 @@ pub(crate) struct FormattedProfileSections {
     pub(crate) audio: [(&'static str, String); 7],
     pub(crate) network: [(&'static str, String); 4],
     /// VERA's own section, written after the native ones.
-    pub(crate) vera: [(&'static str, String); 21],
+    pub(crate) vera: [(&'static str, String); 22],
 }
 
 impl RetailOptionsLoad {
@@ -497,6 +505,8 @@ impl RetailOptionsProfile {
             self.render_interpolation =
                 vera.read_bool("RenderInterpolation", self.render_interpolation);
             self.mouse_wheel_zoom = vera.read_bool("MouseWheelZoom", self.mouse_wheel_zoom);
+            self.modern_rts_controls =
+                vera.read_bool("ModernRtsControls", self.modern_rts_controls);
             self.lock_cursor = vera.read_bool("LockCursor", self.lock_cursor);
             self.window_maximized = vera.read_bool("WindowMaximized", self.window_maximized);
             // A non-numeric value answers 0, which the clamp lifts to the
@@ -641,6 +651,10 @@ impl RetailOptionsProfile {
                 (
                     "MouseWheelZoom",
                     format_bool(self.mouse_wheel_zoom).to_string(),
+                ),
+                (
+                    "ModernRtsControls",
+                    format_bool(self.modern_rts_controls).to_string(),
                 ),
                 ("HouseColorStrength", self.house_color_strength.to_string()),
                 ("Display", self.display.ini_value().to_owned()),
@@ -1647,6 +1661,30 @@ ScoreVolume=0.3\nIsScoreShuffle=yes\nSoundLatency=4\nInGameMusic=no\n[VERA]\nZoo
         let reloaded = load_snapshot(&startup, &written).retained_profile;
         assert!(!reloaded.mouse_wheel_zoom);
         assert!(!reloaded.render_interpolation);
+        assert!(String::from_utf8_lossy(&written).contains("Unowned=keep"));
+    }
+
+    #[test]
+    fn modern_rts_controls_preference_round_trips_in_the_vera_section() {
+        let startup = RetailStartupOptions::default();
+        assert!(
+            !load_snapshot(&startup, b"")
+                .retained_profile
+                .modern_rts_controls
+        );
+        let input = b"[VERA]\nModernRtsControls=yes\nUnowned=keep\n";
+        let mut profile = load_snapshot(&startup, input).retained_profile;
+        assert!(profile.modern_rts_controls);
+        let written = profile.transform_settings(input);
+        assert!(
+            load_snapshot(&startup, &written)
+                .retained_profile
+                .modern_rts_controls
+        );
+        profile.modern_rts_controls = false;
+        let written = profile.transform_settings(&written);
+        let reloaded = load_snapshot(&startup, &written).retained_profile;
+        assert!(!reloaded.modern_rts_controls);
         assert!(String::from_utf8_lossy(&written).contains("Unowned=keep"));
     }
 

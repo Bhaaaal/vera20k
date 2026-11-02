@@ -119,6 +119,7 @@ fn checkbox_value_mut(state: &mut SkirmishShellState, id: SkirmishCheckboxId) ->
         SkirmishCheckboxId::CratesAppear0x696 => &mut state.crates,
         SkirmishCheckboxId::SuperWeapons0x69a => &mut state.super_weapons,
         SkirmishCheckboxId::BuildOffAlly0x69d => &mut state.build_off_ally,
+        SkirmishCheckboxId::TestMode0x6a1 => &mut state.test_mode,
     }
 }
 
@@ -191,6 +192,9 @@ pub fn handle_option_mouse_down(
 
     for checkbox in layout.checkboxes {
         if checkbox_icon_rect(checkbox.rect, layout.scale).contains(x, y) {
+            if !crate::ui::skirmish_shell::checkbox_available(checkbox.id) {
+                continue;
+            }
             let value = checkbox_value_mut(state, checkbox.id);
             *value = !*value;
             state.push_ui_sound(SkirmishShellUiSound::GuiCheckboxSound);

@@ -4395,7 +4395,8 @@ mod random_map_retail_tests {
         let dir = std::env::temp_dir().join(format!("vera20k-rmg-retail-{tag}"));
         crate::util::file_system::create_dir_all(&dir).expect("scratch dir");
         let name = format!("{tag}.sed");
-        crate::util::file_system::write(dir.join(&name), options.to_sed_bytes()).expect("write .SED");
+        crate::util::file_system::write(dir.join(&name), options.to_sed_bytes())
+            .expect("write .SED");
         (dir, name)
     }
 

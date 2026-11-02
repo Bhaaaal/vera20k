@@ -35,11 +35,11 @@ pub(crate) mod sidebar_render;
 pub(crate) mod sidebar_surface;
 pub(crate) mod sidebar_text;
 pub(crate) mod state;
+pub(crate) mod super_timers;
 #[cfg(feature = "phobos")]
 pub(crate) mod sw_sidebar;
 #[cfg(feature = "phobos")]
 pub(crate) mod sw_sidebar_build;
-pub(crate) mod super_timers;
 pub(crate) mod talk_bubble;
 pub(crate) mod target_lines;
 pub(crate) mod ui_overlays;

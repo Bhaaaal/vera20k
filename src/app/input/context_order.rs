@@ -1154,10 +1154,19 @@ fn attack_branch_orders(
                                 continue;
                             }
                             _ => {
+                                // A forced object click attacks it whatever the
+                                // armed order mode says: the modern layout's A
+                                // key aims at any object, the player's own
+                                // units and buildings included.
+                                let payload_mode = if force_fire {
+                                    OrderMode::Move
+                                } else {
+                                    order_mode
+                                };
                                 let Some(command) = object_click_payload(
                                     sim,
                                     rules,
-                                    order_mode,
+                                    payload_mode,
                                     OrderModifier::Normal,
                                     id,
                                     target_id,
@@ -2194,6 +2203,15 @@ pub(crate) fn try_queue_context_order(
                 .and_then(|id| crate::app::input::entity_pick::hover_object_by_id(sim, id, &owner)),
         };
         let hover = hover_object.and_then(HoverObject::techno);
+        // The modern layout's A attack key force-fires: a click on any object,
+        // the player's own units and buildings included, attacks it. Bare
+        // ground keeps the attack-move its own mode asks for.
+        if modifier == OrderModifier::Normal
+            && order_mode == OrderMode::AttackMove
+            && hover_object.is_some()
+        {
+            modifier = OrderModifier::ForceFire;
+        }
         // Techno700082 -> Action8 precedes Infantry/Unit class actions.
         // Let the selection consumer handle Shift over a visible object;
         // bare ground still reaches its immediate Move. Berserk-only groups
@@ -3958,8 +3976,7 @@ pub(super) fn infantry_attack_action(
                 .object_type(target.type_ref(), rules)
                 .is_some_and(|object| {
                     let building = target.category() == EntityCategory::Structure;
-                    object.allows_airstrike(building)
-                        && !(building && object.invisible_in_game)
+                    object.allows_airstrike(building) && !(building && object.invisible_in_game)
                 })
         });
         #[cfg(not(feature = "phobos"))]

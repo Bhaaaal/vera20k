@@ -976,6 +976,7 @@ impl MultiplayerShellRuntime {
         state.build_off_ally = self.snapshot.build_off_ally;
         state.mcv_redeploy = self.snapshot.mcv_repacks;
         state.crates = self.snapshot.crates_appear;
+        state.test_mode = self.snapshot.test_mode;
 
         state.player_name_edit = PlayerNameEditState::with_name(
             &crate::util::native_string::acp_decode(&self.local_preferences.handle_bytes),
@@ -1573,6 +1574,7 @@ fn pack_snapshot_options(snapshot: &mut MultiplayerSetupSnapshot, state: &Skirmi
     snapshot.build_off_ally = state.build_off_ally;
     snapshot.mcv_repacks = state.mcv_redeploy;
     snapshot.crates_appear = state.crates;
+    snapshot.test_mode = state.test_mode;
 }
 
 pub(crate) fn skirmish_global_defaults(state: &SkirmishShellState) -> SkirmishGlobalDefaults {
@@ -1587,6 +1589,7 @@ pub(crate) fn skirmish_global_defaults(state: &SkirmishShellState) -> SkirmishGl
         build_off_ally: state.build_off_ally,
         mcv_repacks: state.mcv_redeploy,
         crates_appear: state.crates,
+        test_mode: state.test_mode,
     }
 }
 

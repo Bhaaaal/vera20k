@@ -12,13 +12,13 @@ use super::{
     FPS_COUNTER_HELP, FPS_COUNTER_LABEL, FULL_SCREEN_HELP, FULL_SCREEN_LABEL,
     HAS_CHECK_FOR_UPDATES, HOUSE_COLOR_STRENGTH_HELP, HOUSE_COLOR_STRENGTH_LABEL, LOCK_CURSOR_HELP,
     LOCK_CURSOR_LABEL, LauncherButton, LauncherCheckboxId, LauncherComboId, LauncherCue,
-    LauncherOptionsEvent, LauncherParentResult, LauncherTrackbarId, MOUSE_WHEEL_ZOOM_HELP,
-    MOUSE_WHEEL_ZOOM_LABEL, ORIGINAL_SHAPE_HELP, ORIGINAL_SHAPE_LABEL, OptionsDialogState,
-    OptionsPage, PhysicalControlFrame, RENDER_INTERPOLATION_HELP, RENDER_INTERPOLATION_LABEL,
-    SHIFT_QUEUE_HELP, SHIFT_QUEUE_LABEL, SIDEBAR_HELP, SIDEBAR_LABEL, SKIP_STARTUP_LOGO_HELP,
-    SKIP_STARTUP_LOGO_LABEL, SidebarSize, VERA_OPTIONS_HELP, VERA_OPTIONS_LABEL,
-    WOL_TEST_SERVICE_HELP, WOL_TEST_SERVICE_LABEL, YR_ORIGINAL_STYLE_HELP, YR_ORIGINAL_STYLE_LABEL,
-    ZOOM_HELP, ZOOM_LABEL, Zoom,
+    LauncherOptionsEvent, LauncherParentResult, LauncherTrackbarId, MODERN_RTS_CONTROLS_HELP,
+    MODERN_RTS_CONTROLS_LABEL, MOUSE_WHEEL_ZOOM_HELP, MOUSE_WHEEL_ZOOM_LABEL, ORIGINAL_SHAPE_HELP,
+    ORIGINAL_SHAPE_LABEL, OptionsDialogState, OptionsPage, PhysicalControlFrame,
+    RENDER_INTERPOLATION_HELP, RENDER_INTERPOLATION_LABEL, SHIFT_QUEUE_HELP, SHIFT_QUEUE_LABEL,
+    SIDEBAR_HELP, SIDEBAR_LABEL, SKIP_STARTUP_LOGO_HELP, SKIP_STARTUP_LOGO_LABEL, SidebarSize,
+    VERA_OPTIONS_HELP, VERA_OPTIONS_LABEL, WOL_TEST_SERVICE_HELP, WOL_TEST_SERVICE_LABEL,
+    YR_ORIGINAL_STYLE_HELP, YR_ORIGINAL_STYLE_LABEL, ZOOM_HELP, ZOOM_LABEL, Zoom,
 };
 use crate::ui::shell::descriptor::DialogId;
 use crate::ui::shell::geom::{RectPx, ShellScale, center_offset, child_window, dlu_rect};
@@ -266,6 +266,7 @@ impl LauncherOptionsLayout {
                     (LauncherCheckboxId::YrOriginalStyle, dlu(93, 113, 130, 10)),
                     (LauncherCheckboxId::ShiftQueue, dlu(93, 128, 130, 10)),
                     (LauncherCheckboxId::MouseWheelZoom, dlu(93, 143, 130, 10)),
+                    (LauncherCheckboxId::ModernRtsControls, dlu(93, 218, 130, 10)),
                     (LauncherCheckboxId::LockCursor, dlu(93, 158, 130, 10)),
                     // Developer Options, in the main page's UI Options band.
                     (LauncherCheckboxId::FpsCounter, dlu(93, 188, 130, 10)),
@@ -478,6 +479,7 @@ impl OptionsDialogState {
             LauncherCheckboxId::YrOriginalStyle => YR_ORIGINAL_STYLE_LABEL,
             LauncherCheckboxId::RenderInterpolation => RENDER_INTERPOLATION_LABEL,
             LauncherCheckboxId::MouseWheelZoom => MOUSE_WHEEL_ZOOM_LABEL,
+            LauncherCheckboxId::ModernRtsControls => MODERN_RTS_CONTROLS_LABEL,
             LauncherCheckboxId::LockCursor => LOCK_CURSOR_LABEL,
             LauncherCheckboxId::ShiftQueue => SHIFT_QUEUE_LABEL,
             LauncherCheckboxId::WolTestService => WOL_TEST_SERVICE_LABEL,
@@ -531,6 +533,7 @@ impl OptionsDialogState {
             LauncherCheckboxId::YrOriginalStyle => self.values.yr_original_style,
             LauncherCheckboxId::RenderInterpolation => self.values.render_interpolation,
             LauncherCheckboxId::MouseWheelZoom => self.values.mouse_wheel_zoom,
+            LauncherCheckboxId::ModernRtsControls => self.values.modern_rts_controls,
             LauncherCheckboxId::LockCursor => self.values.lock_cursor,
             LauncherCheckboxId::ShiftQueue => self.values.shift_queue,
             LauncherCheckboxId::WolTestService => self.values.wol_test_service,
@@ -731,6 +734,9 @@ impl OptionsDialogState {
                 }
                 LauncherCheckboxId::MouseWheelZoom => {
                     LauncherStatusHelp::Text(MOUSE_WHEEL_ZOOM_HELP)
+                }
+                LauncherCheckboxId::ModernRtsControls => {
+                    LauncherStatusHelp::Text(MODERN_RTS_CONTROLS_HELP)
                 }
                 LauncherCheckboxId::LockCursor => LauncherStatusHelp::Text(LOCK_CURSOR_HELP),
                 LauncherCheckboxId::ShiftQueue => LauncherStatusHelp::Text(SHIFT_QUEUE_HELP),
@@ -1097,7 +1103,7 @@ mod tests {
             .chain(&layout.checkboxes)
             .map(|(id, _)| *id)
             .collect();
-        assert_eq!(all.len(), 12);
+        assert_eq!(all.len(), 13);
         for id in &all {
             assert_eq!(all.iter().filter(|other| *other == id).count(), 1, "{id:?}");
         }
@@ -1136,6 +1142,9 @@ mod tests {
             (YrOriginalStyle, ui, developer),
             (ShiftQueue, ui, developer),
             (MouseWheelZoom, ui, developer),
+            // The UI Options band's four rows are full in the main page's
+            // geometry, so this one takes the Developer band's free row.
+            (ModernRtsControls, developer, accessibility),
             (LockCursor, ui, developer),
             (FpsCounter, developer, accessibility),
             (SkipStartupLogo, developer, accessibility),
@@ -1297,6 +1306,7 @@ mod tests {
             (YrOriginalStyle, YR_ORIGINAL_STYLE_HELP),
             (ShiftQueue, SHIFT_QUEUE_HELP),
             (MouseWheelZoom, MOUSE_WHEEL_ZOOM_HELP),
+            (ModernRtsControls, MODERN_RTS_CONTROLS_HELP),
             (LockCursor, LOCK_CURSOR_HELP),
             (FpsCounter, FPS_COUNTER_HELP),
             (SkipStartupLogo, SKIP_STARTUP_LOGO_HELP),
@@ -1640,6 +1650,11 @@ mod tests {
                 MouseWheelZoom,
                 MOUSE_WHEEL_ZOOM_LABEL,
                 LauncherOptionsEvent::MouseWheelZoomChanged,
+            ),
+            (
+                ModernRtsControls,
+                MODERN_RTS_CONTROLS_LABEL,
+                LauncherOptionsEvent::ModernRtsControlsChanged,
             ),
             (
                 LockCursor,

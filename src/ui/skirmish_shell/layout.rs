@@ -13,7 +13,7 @@ pub const RIGHT_PANEL_WIDTH: i32 = crate::ui::shell::geom::RIGHT_PANEL_WIDTH;
 pub const SDBTNANM_W: i32 = 156;
 pub const SDBTNANM_H: i32 = crate::ui::shell::geom::SDBTNANM_CELL_H;
 pub const SDBTNBKGD_H: i32 = crate::ui::shell::geom::RIGHT_PANEL_TILE_H;
-pub const SKIRMISH_CHECKBOX_COUNT: usize = 5;
+pub const SKIRMISH_CHECKBOX_COUNT: usize = 6;
 pub const CHECKBOX_ICON_W: i32 = 18;
 pub const CHECKBOX_ICON_H: i32 = 18;
 pub const CHECKBOX_TEXT_LEFT_OFFSET: i32 = 26;
@@ -147,12 +147,28 @@ pub enum SkirmishCheckboxId {
     CratesAppear0x696,
     SuperWeapons0x69a,
     BuildOffAlly0x69d,
+    /// VERA's own switch, not a retail control: the offline trainer
+    /// (`sim::cheats`) plus the test HUD. Sits under Super Weapons.
+    TestMode0x6a1,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SkirmishCheckboxRect {
     pub id: SkirmishCheckboxId,
     pub rect: RectPx,
+}
+
+/// Whether a checkbox exists in this build.
+///
+/// VERA's own Test Mode row needs the engine's offline trainer, which the dev
+/// overlays compile (and the release build leaves out); without it the box would
+/// be an inert control, so it is not drawn, hit-tested or toggled at all. Every
+/// retail box is always available.
+pub fn checkbox_available(id: SkirmishCheckboxId) -> bool {
+    match id {
+        SkirmishCheckboxId::TestMode0x6a1 => cfg!(feature = "dev-overlays"),
+        _ => true,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -712,6 +728,10 @@ pub fn compute_layout(screen_w: u32, screen_h: u32) -> SkirmishShellLayout {
             SkirmishCheckboxRect {
                 id: SkirmishCheckboxId::BuildOffAlly0x69d,
                 rect: checkbox_dlu_rect(201, 227, 166, 11),
+            },
+            SkirmishCheckboxRect {
+                id: SkirmishCheckboxId::TestMode0x6a1,
+                rect: offset_rect_x(checkbox_dlu_rect(48, 246, 103, 10), -1),
             },
         ],
         status_help: status_help_rect(screen_w, screen_h),
@@ -1592,7 +1612,7 @@ mod tests {
     #[test]
     fn checkbox_rects_match_800x600_final_geometry() {
         let layout = compute_layout(800, 600);
-        assert_eq!(layout.checkboxes.len(), 5);
+        assert_eq!(layout.checkboxes.len(), 6);
         assert_eq!(layout.checkboxes[0].id, SkirmishCheckboxId::ShortGame0x54e);
         assert_eq!(layout.checkboxes[0].rect, RectPx::new(71, 286, 150, 16));
         assert_eq!(layout.checkboxes[1].id, SkirmishCheckboxId::McvRepacks0x693);
@@ -1612,6 +1632,9 @@ mod tests {
             SkirmishCheckboxId::BuildOffAlly0x69d
         );
         assert_eq!(layout.checkboxes[4].rect, RectPx::new(302, 369, 249, 18));
+        // VERA's own row, one checkbox step under Super Weapons.
+        assert_eq!(layout.checkboxes[5].id, SkirmishCheckboxId::TestMode0x6a1);
+        assert_eq!(layout.checkboxes[5].rect, RectPx::new(71, 400, 155, 16));
     }
 
     #[test]
