@@ -616,11 +616,97 @@ pub(crate) fn render_game(
         },
     );
     let frame_rate = presentation.detail.borrow().frame_rate();
+    // VeraX custom trails: sample each live owner's committed anchor, age the
+    // history by wall time, then emit ordered surface lines. The simulation
+    // only answers anchors; no trail state enters a tick, save or replay.
+    #[cfg(feature = "verax")]
+    let vera_trail_draws = {
+        use crate::app::presentation::vera_trails::OwnerKind;
+        let mut handoff = Vec::new();
+        // The rules binding is taken here rather than reused from above: the
+        // Main-draw call already ended its mutable borrow of `sim_runtime`.
+        let runtime = state.match_state.sim_runtime.as_ref();
+        if let (Some(sim), Some(rules)) = (
+            runtime.map(|runtime| runtime.view().simulation()),
+            runtime.map(|runtime| &runtime.resources.rules),
+        ) {
+            let now_ms = times.radar_ms;
+            let detail_level = u8::try_from(presentation.in_game_options.detail_level).unwrap_or(2);
+            let trails = &mut presentation.vera_trails;
+            trails.begin_frame();
+            for (id, entity) in sim.entities().iter_sorted() {
+                if entity.health.current() == 0 || entity.lifecycle.in_limbo() {
+                    continue;
+                }
+                let Some(obj) = sim.object_type(entity.type_ref(), rules) else {
+                    continue;
+                };
+                let Some(styles) = rules.vera_trails_for_object(&obj.id) else {
+                    continue;
+                };
+                for (index, style) in styles.iter().enumerate() {
+                    let Some(anchor) = crate::sim::combat::fire_coord::flh_anchor(
+                        sim,
+                        rules,
+                        entity,
+                        crate::rules::flh::Flh::from(style.flh),
+                    ) else {
+                        continue;
+                    };
+                    trails.sample(
+                        OwnerKind::Entity,
+                        id,
+                        index as u8,
+                        style,
+                        [anchor.x, anchor.y, anchor.z],
+                        now_ms,
+                    );
+                }
+            }
+            for (id, projectile) in sim.projectiles().iter() {
+                let Some(kind) = projectile
+                    .payload()
+                    .projectile_type()
+                    .map(|type_id| sim.interner().resolve(type_id))
+                    .and_then(|name| rules.projectile(name))
+                else {
+                    continue;
+                };
+                let position = projectile.position();
+                for (index, style) in kind.vera_trails.iter().enumerate() {
+                    trails.sample(
+                        OwnerKind::Projectile,
+                        *id,
+                        index as u8,
+                        style,
+                        [position.x, position.y, position.z],
+                        now_ms,
+                    );
+                }
+            }
+            let camera_px = [camera[0] as i32, camera[1] as i32];
+            trails.end_frame(now_ms);
+            handoff = trails.draws(now_ms, camera_px, detail_level, |point| {
+                effect_hidden(point[0], point[1])
+            });
+        }
+        handoff
+    };
+    // Custom trails keep the native phase order: after the retail trail, before
+    // RadBeam (`6D4678`). They share the post-trail draw bucket with the beams.
     presentation
         .radiation_beams
         .composite(frame_rate, viewport, |birth| {
             !effect_hidden(birth.to.x, birth.to.y)
         });
+    #[cfg(feature = "verax")]
+    let custom_trail_draws: Vec<crate::render::surface_line::SurfaceDraw> = vera_trail_draws;
+    #[cfg(not(feature = "verax"))]
+    let custom_trail_draws: Vec<crate::render::surface_line::SurfaceDraw> = Vec::new();
+    let post_trail_draws: Vec<crate::render::surface_line::SurfaceDraw> = custom_trail_draws
+        .into_iter()
+        .chain(presentation.radiation_beams.draws().iter().copied())
+        .collect();
     let shroud = presentation.shroud_buffer.as_ref();
     let mut alpha = |point: [i32; 2]| {
         if sandbox {
@@ -654,7 +740,7 @@ pub(crate) fn render_game(
             .copied()
             .map(crate::render::surface_line::SurfaceDraw::Line),
         segments,
-        presentation.radiation_beams.draws(),
+        &post_trail_draws,
         &radials,
         viewport,
         |color| {

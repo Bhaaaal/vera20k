@@ -152,6 +152,8 @@ pub mod phobos_sw_sidebar;
 pub mod phobos_warhead_anim;
 pub mod phobos_radiation;
 pub mod phobos_shields;
+#[cfg(feature = "verax")]
+pub mod vera_trail;
 /// Whether this binary includes the supported Ares extensions. INIs cannot change it.
 pub const ARES_ENABLED: bool = cfg!(feature = "ares");
 /// Whether this binary includes the supported Phobos extensions. INIs cannot change it.

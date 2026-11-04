@@ -63,6 +63,10 @@ pub(crate) struct MatchPresentationState {
     pub(crate) house_roster: HouseRoster,
     pub(crate) lighting: super::lighting::MatchLighting,
     pub(crate) line_trails: super::line_trails::LineTrails,
+    /// VeraX custom trails: presentation history keyed by owner and catalog
+    /// index. Never enters the simulation, a save or a replay.
+    #[cfg(feature = "verax")]
+    pub(crate) vera_trails: super::vera_trails::VeraTrails,
     pub(crate) lasers: super::lasers::Lasers,
     #[cfg(feature = "ares")]
     pub(crate) flying_credits: std::cell::RefCell<super::flying_credits::FlyingCredits>,

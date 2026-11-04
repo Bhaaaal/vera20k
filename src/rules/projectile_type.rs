@@ -173,6 +173,12 @@ pub struct ProjectileType {
     pub use_line_trail: bool,
     pub line_trail_color: [u8; 3],
     pub line_trail_color_decrement: i32,
+    /// VeraX custom trails this projectile draws (`VeraTrail.Types=` on its
+    /// ART section, resolved through `[VeraTrailTypes]`). Projected by
+    /// `RuleSet::install_art_data`; a nonempty list replaces the retail
+    /// `UseLineTrail` trail rather than drawing beside it.
+    #[cfg(feature = "verax")]
+    pub vera_trails: Vec<crate::rules::vera_trail::VeraTrailStyle>,
 }
 
 /// Process-resident Bullet Color, ART and Degenerates values, owned by
@@ -477,6 +483,8 @@ impl ProjectileType {
             use_line_trail: false,
             line_trail_color: [128; 3],
             line_trail_color_decrement: 16,
+            #[cfg(feature = "verax")]
+            vera_trails: Vec::new(),
         };
         // Standalone reader callers use the same field kernel. Production
         // RuleSet receives the retained per-pass state from native_processing.

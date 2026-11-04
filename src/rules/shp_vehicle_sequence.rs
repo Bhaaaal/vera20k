@@ -418,6 +418,8 @@ mod tests {
         ArtEntry {
             image: None,
             cameo: None,
+            #[cfg(feature = "verax")]
+            vera_trail_types: None,
             alt_cameo: None,
             #[cfg(feature = "ares")]
             cameo_pcx: None,

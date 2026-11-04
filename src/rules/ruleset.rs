@@ -4793,6 +4793,10 @@ pub struct RuleSet {
     /// Scenario-owned ART metadata and bound animation closure. Loaders transfer
     /// it once; every later binding and consumer uses this same registry.
     art_registry: crate::rules::art_data::ArtRegistry,
+    /// VeraX custom trails per TechnoType id (uppercase), projected from the
+    /// type's ART section list when ART data installs. Empty in a stock build.
+    #[cfg(feature = "verax")]
+    vera_trails_by_object: HashMap<String, Vec<crate::rules::vera_trail::VeraTrailStyle>>,
     /// Existing AnimTypes for Building451890's lookup-only427CB0 gate.
     /// Membership is independent of a same-named art section or loaded SHP.
     pub anim_type_names: BTreeSet<String>,
@@ -6595,6 +6599,8 @@ impl RuleSet {
             voxel_anim_types_by_name,
             smudge_types: SmudgeTypeRegistry::from_rules_ini(ini),
             art_registry: crate::rules::art_data::ArtRegistry::empty(),
+            #[cfg(feature = "verax")]
+            vera_trails_by_object: HashMap::new(),
             anim_type_art_read_states: Vec::new(),
             anim_type_images: Vec::new(),
             anim_type_references: Vec::new(),
@@ -9952,8 +9958,55 @@ impl RuleSet {
         self.project_art_data();
     }
 
+    /// VeraX custom trails this TechnoType draws, in its ART list's order.
+    /// A type whose section sets no `VeraTrail.Types=` (or whose names miss the
+    /// catalog) answers none and draws no trail. Keys are the exact `ObjectType`
+    /// ids the projection stored, so a per-frame lookup allocates nothing.
+    #[cfg(feature = "verax")]
+    pub fn vera_trails_for_object(
+        &self,
+        object_id: &str,
+    ) -> Option<&[crate::rules::vera_trail::VeraTrailStyle]> {
+        self.vera_trails_by_object.get(object_id).map(Vec::as_slice)
+    }
+
+    /// Resolve the installed ART registry's `[VeraTrailTypes]` lists onto the
+    /// ordered object list and the projectile registry. One ART section can
+    /// serve several types through `Image=`, so each type stores its own copy.
+    #[cfg(feature = "verax")]
+    fn project_vera_trails(&mut self) {
+        let RuleSet {
+            art_registry,
+            object_list,
+            projectiles,
+            vera_trails_by_object,
+            ..
+        } = self;
+        let mut by_object = HashMap::new();
+        for obj in object_list.iter() {
+            let mut styles = art_registry.vera_trail_styles(&obj.image);
+            if styles.is_empty() {
+                styles = art_registry.vera_trail_styles(&obj.id);
+            }
+            if !styles.is_empty() {
+                by_object.insert(obj.id.clone(), styles);
+            }
+        }
+        *vera_trails_by_object = by_object;
+        for projectile in projectiles.values_mut() {
+            let key = projectile
+                .image
+                .as_deref()
+                .filter(|image| !image.is_empty())
+                .unwrap_or(projectile.id.as_str());
+            projectile.vera_trails = art_registry.vera_trail_styles(key);
+        }
+    }
+
     fn project_art_data(&mut self) {
         self.voxel_assets = Default::default();
+        #[cfg(feature = "verax")]
+        self.project_vera_trails();
         let art = &self.art_registry;
         // Projectile ART is already projected from the per-pass registry owner.
         // A final-image reread here would lose omission/cache/default semantics.

@@ -98,6 +98,10 @@ pub struct DirectiveOptions {
     /// Execute Phobos `[$Include]`. Phobos `-Include` replaces the Ares hooks,
     /// so a document that uses `$Include` leaves its `[#include]` inert.
     pub phobos: bool,
+    /// Execute Phobos `[$Include]` in a VeraX build. VeraX has no dialect of
+    /// its own and reuses Phobos's `$` syntax so a VeraX-only build can read a
+    /// fragment file; it keeps Phobos's fatal missing-file policy too.
+    pub verax: bool,
 }
 
 impl Default for DirectiveOptions {
@@ -107,6 +111,7 @@ impl Default for DirectiveOptions {
             strict: false,
             ares: true,
             phobos: true,
+            verax: true,
         }
     }
 }
@@ -115,11 +120,13 @@ impl DirectiveOptions {
     /// Dialects this binary can execute. Natively one launch runs one dialect:
     /// Phobos `-Include` swaps `$Include` in for the Ares hooks. VERA has no
     /// such switch, so a combined build keeps both, and a document that uses
-    /// `$Include` takes over from its `[#include]`.
+    /// `$Include` takes over from its `[#include]`. A VeraX build selects the
+    /// same `$` dialect without the Phobos capability.
     pub fn production() -> Self {
         Self {
             ares: crate::rules::ARES_ENABLED,
             phobos: crate::rules::PHOBOS_ENABLED,
+            verax: crate::rules::VERAX_ENABLED,
             ..Self::default()
         }
     }
@@ -346,8 +353,9 @@ fn inherited_text_budget(ini: &IniFile) -> usize {
 
 fn select_include_dialect(ini: &IniFile, options: DirectiveOptions) -> Option<IncludeDialect> {
     // Phobos takes priority and disables the Ares hooks, so `[#include]` runs
-    // only when the caller has not selected the Phobos dialect.
-    if options.phobos && ini.section(PHOBOS).is_some() {
+    // only when the caller has not selected the Phobos dialect. A VeraX build
+    // selects the same `$Include` dialect without the Phobos capability.
+    if (options.phobos || options.verax) && ini.section(PHOBOS).is_some() {
         Some(IncludeDialect::Phobos)
     } else if options.ares && ini.section(ARES).is_some() {
         Some(IncludeDialect::Ares)

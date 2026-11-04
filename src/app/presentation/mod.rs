@@ -43,6 +43,8 @@ pub(crate) mod sw_sidebar_build;
 pub(crate) mod talk_bubble;
 pub(crate) mod target_lines;
 pub(crate) mod ui_overlays;
+#[cfg(feature = "verax")]
+pub(crate) mod vera_trails;
 
 #[cfg(test)]
 mod passenger_pip_tests;

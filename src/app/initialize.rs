@@ -1001,6 +1001,8 @@ impl App {
                     combat_lights: Default::default(),
                     screen_shake: Default::default(),
                     line_trails: Default::default(),
+                    #[cfg(feature = "verax")]
+                    vera_trails: Default::default(),
                     lasers: Default::default(),
                     #[cfg(feature = "ares")]
                     flying_credits: Default::default(),

@@ -7,9 +7,9 @@ NPatch compatibility capabilities. Build it explicitly:
 cargo run --release --bin vera20k --features verax
 ```
 
-The `verax` feature currently compiles AutoLoad and Skirmish map hot reload.
-The translucent-fog option and foot-path overlay in "Origins and related
-first-party work" are adjacent VERA work, not VeraX features.
+The `verax` feature currently compiles AutoLoad, custom trails and Skirmish map
+hot reload. The translucent-fog option and foot-path overlay in "Origins and
+related first-party work" are adjacent VERA work, not VeraX features.
 
 ## AutoLoad
 
@@ -26,6 +26,16 @@ The command is registered as `AutoLoad` in the keyboard page's `vera20k` categor
 rebound or cleared like a retail hotkey. Ctrl+D is installed as the reload default when neither
 AutoLoad nor Ctrl+D already has a saved binding, and an explicit `AutoLoad=0` keeps it cleared.
 The assignment is written to the profile with the other bindings.
+
+## Custom trails
+
+[Custom trails](verax-trails.md) give a TechnoType or a projectile its own
+trails: up to twelve per type, each anchored at a body-space `FLH=` offset, with
+a head/tail colour gradient, width, fade time, opacity and `ZOrder=`. The ART
+`[VeraTrailTypes]` catalog names the styles and each type's ART section lists the
+trails it draws with `VeraTrail.Types=`. A projectile that sets that list draws
+it instead of its retail `UseLineTrail` ring. Trails are presentation history
+only: they never enter a tick, save or replay.
 
 ## Map hot reload
 

@@ -170,6 +170,54 @@ fn ini_directives_phobos_section_wins_instead_of_combining_lists() {
 }
 
 #[test]
+fn ini_directives_verax_expands_phobos_include_without_the_phobos_capability() {
+    let verax = DirectiveOptions {
+        ares: false,
+        phobos: false,
+        verax: true,
+        ..DirectiveOptions::default()
+    };
+    let fragment = "[FALC]\nVeraTrail.Types=FLAC_WING_L\n";
+    let expanded = process_directives(
+        IniFile::from_str("[$Include]\n0=frag.ini\n"),
+        "artmd.ini",
+        |name| Ok((name == "frag.ini").then(|| IniFile::from_str(fragment))),
+        verax,
+    )
+    .unwrap_or_else(|error| panic!("a VeraX build reads the Phobos fragment dialect: {error}"));
+    assert_eq!(
+        text(&expanded.ini, "FALC", "VeraTrail.Types").as_deref(),
+        Some("FLAC_WING_L")
+    );
+
+    // VeraX keeps the Phobos dialect's fatal missing-file policy.
+    let error = process_directives(
+        IniFile::from_str("[$Include]\n0=missing.ini\n"),
+        "artmd.ini",
+        |_| Ok(None),
+        verax,
+    )
+    .err()
+    .expect("a missing fragment is fatal");
+    assert_eq!(error.kind, DiagnosticKind::IncludeMissing);
+
+    // Without any dialect option the same document stays inert.
+    let inert = process_directives(
+        IniFile::from_str("[$Include]\n0=frag.ini\n"),
+        "artmd.ini",
+        |_| Ok(Some(IniFile::from_str(fragment))),
+        DirectiveOptions {
+            ares: false,
+            phobos: false,
+            verax: false,
+            ..DirectiveOptions::default()
+        },
+    )
+    .expect("no selected dialect is not an error");
+    assert!(inert.ini.section("FALC").is_none());
+}
+
+#[test]
 fn ini_directives_include_list_keeps_stored_entry_order() {
     // Both native readers walk stored entries: Ares GetKeyName(section, index)
     // 0x00526CC0 and Phobos `section->EntryIndex` iteration. Keys are only
@@ -719,9 +767,12 @@ fn ini_directives_production_selection_obeys_build_capability() {
     let options = DirectiveOptions::production();
     assert_eq!(options.phobos, crate::rules::PHOBOS_ENABLED);
     assert_eq!(options.ares, crate::rules::ARES_ENABLED);
+    assert_eq!(options.verax, crate::rules::VERAX_ENABLED);
+    // A VeraX build selects the Phobos `$` dialect without the capability.
+    let dollar_dialect = crate::rules::PHOBOS_ENABLED || crate::rules::VERAX_ENABLED;
     for (directive, expected) in [
         ("#include", crate::rules::ARES_ENABLED),
-        ("$Include", crate::rules::PHOBOS_ENABLED),
+        ("$Include", dollar_dialect),
     ] {
         let dir = TestDirectory::new("ini-directives-capability");
         let root = format!(
@@ -739,15 +790,15 @@ fn ini_directives_production_selection_obeys_build_capability() {
             expected.then_some("child")
         );
         // `[Base]` is authored in the root document, so inheritance resolves
-        // even when the included file is not read. A build with neither
+        // even when the included file is not read. A build with no directive
         // capability never enters the directive owner.
-        let any_capability = crate::rules::ARES_ENABLED || crate::rules::PHOBOS_ENABLED;
+        let any_capability = crate::rules::ARES_ENABLED || dollar_dialect;
         assert_eq!(
             text(&selected.ini, "Child", "Inherited").as_deref(),
             any_capability.then_some("parent")
         );
         assert_eq!(text(&selected.ini, "Child", "Own").as_deref(), Some("root"));
-        if !crate::rules::ARES_ENABLED && !crate::rules::PHOBOS_ENABLED {
+        if !any_capability {
             assert_eq!(
                 selected.ini.content_hash(),
                 IniFile::from_str(&root).content_hash()

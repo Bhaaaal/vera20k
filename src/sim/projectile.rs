@@ -1101,6 +1101,12 @@ impl ProjectileLineTrail {
         kind: &crate::rules::projectile_type::ProjectileType,
         override_color: [u8; 3],
     ) -> Option<Self> {
+        // VeraX choice: a projectile that lists custom trails draws those
+        // instead of the retail `UseLineTrail` ring, never both.
+        #[cfg(feature = "verax")]
+        if !kind.vera_trails.is_empty() {
+            return None;
+        }
         kind.use_line_trail.then_some(Self {
             color: if override_color.iter().any(|&c| c != 0) {
                 override_color
@@ -3106,6 +3112,27 @@ fn detonation(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// VeraX: a projectile whose ART section lists custom trails draws that
+    /// list instead of the retail `UseLineTrail` ring, so the two never overlap.
+    #[cfg(feature = "verax")]
+    #[test]
+    fn vera_trails_replace_the_retail_line_trail() {
+        use crate::rules::ini_parser::IniFile;
+        use crate::rules::projectile_type::ProjectileType;
+        let ini = IniFile::from_str("[BULLET]\nFoo=1\n[IMG]\nUseLineTrail=yes\n");
+        let rules_section = ini.section("BULLET").expect("rules section");
+        let art = ini.section("IMG").expect("art section");
+        let mut kind = ProjectileType::from_ini_section("BULLET", rules_section, Some(art));
+        assert!(kind.use_line_trail);
+        assert!(ProjectileLineTrail::from_type(&kind, [0; 3]).is_some());
+        kind.vera_trails
+            .push(crate::rules::vera_trail::VeraTrailStyle::default());
+        assert!(
+            ProjectileLineTrail::from_type(&kind, [0; 3]).is_none(),
+            "the custom list replaces the retail ring"
+        );
+    }
 
     /// Phobos `BulletClass_AI_ApplyGravity` (0x4671B9): a type `Gravity`
     /// replaces the Rules integer in flight, but a Floater shell still takes

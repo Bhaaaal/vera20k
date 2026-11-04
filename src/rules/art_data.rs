@@ -72,6 +72,11 @@ pub struct ArtEntry {
     pub image: Option<String>,
     /// Sidebar cameo/image override from `Cameo=`.
     pub cameo: Option<String>,
+    /// VeraX `VeraTrail.Types=` raw list: the trail catalog names this ART
+    /// section's type draws. Only a `verax` build reads the key; resolution
+    /// lives in [`ArtRegistry::vera_trail_styles`].
+    #[cfg(feature = "verax")]
+    pub vera_trail_types: Option<String>,
     /// Alternate sidebar cameo/image override from `AltCameo=`.
     pub alt_cameo: Option<String>,
     /// Ares 3.0 TechnoType art read1003E81F..1003E856, from ImageFile.
@@ -923,6 +928,9 @@ pub struct ArtRegistry {
     occupy_heights: HashMap<String, i32>,
     /// section ID (uppercase) -> generic AnimType runtime metadata.
     anim_runtime_configs: HashMap<String, AnimTypeRuntimeConfig>,
+    /// VeraX `[VeraTrailTypes]` catalog: one style per named trail.
+    #[cfg(feature = "verax")]
+    vera_trails: crate::rules::vera_trail::VeraTrailCatalog,
     /// First native Anim slot's immutable image projection. Unlike orphan
     /// ART metadata, these requests came from the retained ProcessedType.
     anim_type_images: HashMap<String, crate::rules::object_image::ObjectImageState>,
@@ -1054,6 +1062,8 @@ impl ArtRegistry {
         let mut anim_runtime_configs: HashMap<String, AnimTypeRuntimeConfig> = HashMap::new();
         let mut anim_theater_flags = HashMap::new();
         let mut damage_fire_offsets_valid = true;
+        #[cfg(feature = "verax")]
+        let vera_trails = crate::rules::vera_trail::VeraTrailCatalog::from_ini(ini);
 
         for section_name in ini.section_names() {
             let section = match ini.section(section_name) {
@@ -1067,6 +1077,10 @@ impl ArtRegistry {
             let image: Option<String> = section.read_name("Image", 0x40).map(str::to_owned);
             let cameo: Option<String> = section.read_name("Cameo", 0x100).map(str::to_owned);
             let alt_cameo: Option<String> = section.read_name("AltCameo", 0x100).map(str::to_owned);
+            #[cfg(feature = "verax")]
+            let vera_trail_types: Option<String> = section
+                .read_name("VeraTrail.Types", crate::rules::vera_trail::LIST_CAPACITY)
+                .map(str::to_owned);
             #[cfg(feature = "ares")]
             let cameo_pcx = section.read_ares_pcx_filename("CameoPCX");
             #[cfg(feature = "ares")]
@@ -1250,6 +1264,8 @@ impl ArtRegistry {
                 ArtEntry {
                     image,
                     cameo,
+                    #[cfg(feature = "verax")]
+                    vera_trail_types,
                     alt_cameo,
                     #[cfg(feature = "ares")]
                     cameo_pcx,
@@ -1332,6 +1348,8 @@ impl ArtRegistry {
             anim_theater_flags,
             scheduler_anim_types: BTreeSet::new(),
             damage_fire_offsets_valid,
+            #[cfg(feature = "verax")]
+            vera_trails,
         }
     }
 
@@ -1347,6 +1365,8 @@ impl ArtRegistry {
             anim_theater_flags: HashMap::new(),
             scheduler_anim_types: BTreeSet::new(),
             damage_fire_offsets_valid: true,
+            #[cfg(feature = "verax")]
+            vera_trails: Default::default(),
         }
     }
 
@@ -1355,6 +1375,24 @@ impl ArtRegistry {
         self.entry_names
             .get(&image_id.to_uppercase())
             .and_then(|name| self.entries.get(name))
+    }
+
+    /// VeraX trail styles for an ART section name, resolved through the
+    /// `[VeraTrailTypes]` catalog. A missing section or an unset
+    /// `VeraTrail.Types=` answers no trails; unknown names inside the list are
+    /// skipped by the catalog.
+    #[cfg(feature = "verax")]
+    pub fn vera_trail_styles(
+        &self,
+        image_id: &str,
+    ) -> Vec<crate::rules::vera_trail::VeraTrailStyle> {
+        let Some(list) = self
+            .get(image_id)
+            .and_then(|entry| entry.vera_trail_types.as_deref())
+        else {
+            return Vec::new();
+        };
+        self.vera_trails.resolve(list)
     }
 
     /// Native Foundation474DA0 uses exact section/key identity. The cached

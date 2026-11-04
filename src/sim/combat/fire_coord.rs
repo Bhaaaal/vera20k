@@ -260,6 +260,45 @@ pub fn turret_pivot_coordinate(
     ))
 }
 
+/// VeraX custom-trail anchor: the object's render coordinate plus a body-space
+/// FLH, through the one `GetFLH` transform the fire path uses.
+///
+/// The same gathering supplies the hull/aim facings and the locomotor basis
+/// (`fly_locomotor_basis` for Fly, the ground matrices for Drive/Ship/Hover), so
+/// a wing-tip or exhaust offset follows the hull's heading, pitch and roll
+/// exactly as a muzzle offset does. Burst parity is not consulted: a trail is
+/// not a shot, so the lateral offset is never mirrored. An object without a
+/// locomotor (a building) adds the FLH directly, like the turret pivot's own
+/// no-locomotor arm.
+pub fn flh_anchor(
+    world: &Simulation,
+    rules: &RuleSet,
+    entity: &GameEntity,
+    flh: Flh,
+) -> Option<ProjectileCoord> {
+    let obj = world.object_type(entity.type_ref(), rules)?;
+    let source = FireSource::of_entity(entity);
+    let base = fire_coordinate_base(world, rules, &source, obj);
+    let delta = if entity.locomotor.is_some() {
+        crate::util::flh_transform::native_flh_world_delta(
+            flh.forward,
+            flh.lateral,
+            flh.height,
+            0,
+            base.facings,
+            0,
+            base.locomotor_basis,
+        )?
+    } else {
+        (flh.forward, flh.lateral, flh.height)
+    };
+    Some(ProjectileCoord::new(
+        base.x.wrapping_add(delta.0),
+        base.y.wrapping_add(delta.1),
+        base.z.wrapping_add(delta.2),
+    ))
+}
+
 /// Resolve the fire coordinate of `snap` firing the selected native weapon index.
 ///
 /// Non-buildings: `TechnoClass::GetFLH @ 0x006F3AD0`, the type's `FLH` rotated

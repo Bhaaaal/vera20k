@@ -186,6 +186,8 @@ pub(crate) fn install_world_presentation(
         .match_presentation
         .line_trails
         .clear_on_load();
+    #[cfg(feature = "verax")]
+    state.match_state.match_presentation.vera_trails.clear();
     state
         .match_state
         .match_presentation
