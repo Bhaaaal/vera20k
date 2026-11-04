@@ -70,6 +70,9 @@ pub(super) struct UiInstances {
     pub software_cursor: Vec<SpriteInstance>,
     pub drag: Vec<SpriteInstance>,
     pub placement: Vec<SpriteInstance>,
+    /// The base build area drawn behind the PLACE cells while a building
+    /// placement is armed.
+    pub build_area: Vec<SpriteInstance>,
     /// Phobos placement preview artwork, drawn after the PLACE cells.
     #[cfg(feature = "phobos")]
     pub placement_ghost: Vec<SpriteInstance>,
@@ -986,6 +989,7 @@ pub(super) fn build_ui_instances(state: &AppState, wall_ms: u32) -> UiInstances 
         software_cursor,
         drag,
         placement: placement_preview.cells,
+        build_area: placement_preview.build_area,
         #[cfg(feature = "phobos")]
         placement_ghost: placement_preview.ghost,
         target_line,
@@ -1034,12 +1038,20 @@ fn build_beacon_instances(state: &AppState) -> Vec<Vec<SpriteInstance>> {
     rows
 }
 
-/// The PLACE cells and, in Phobos builds, the preview artwork drawn after them.
+/// The PLACE cells, the base build area behind them, and, in Phobos builds,
+/// the preview artwork drawn after them.
 struct PlacementPreviewInstances {
     cells: Vec<SpriteInstance>,
+    /// The base build area the armed type may occupy, drawn behind the PLACE
+    /// cells. See `sim::production::build_area_cells`.
+    build_area: Vec<SpriteInstance>,
     #[cfg(feature = "phobos")]
     ghost: Vec<SpriteInstance>,
 }
+
+/// Tint and alpha of one base build area cell.
+const BUILD_AREA_TINT: [f32; 3] = [0.55, 0.85, 0.45];
+const BUILD_AREA_ALPHA: f32 = 0.3;
 
 /// Active PLACE cells. Tactical6D5030 suppresses the building ghost outside
 /// the map editor; Cell47EC90 supplies frame0 or slope+2. Keep one ordered
@@ -1047,6 +1059,7 @@ struct PlacementPreviewInstances {
 fn build_placement_preview(state: &AppState) -> PlacementPreviewInstances {
     let mut out = PlacementPreviewInstances {
         cells: Vec::new(),
+        build_area: Vec::new(),
         #[cfg(feature = "phobos")]
         ghost: Vec::new(),
     };
@@ -1078,11 +1091,55 @@ fn build_placement_preview(state: &AppState) -> PlacementPreviewInstances {
     if let Some(shape) = shape {
         out.cells = shape.build_building_preview(preview, alpha);
     }
+    out.build_area = build_area_instances(state);
     #[cfg(feature = "phobos")]
     {
         out.ghost = build_placement_ghost(state, preview);
     }
     out
+}
+
+/// The base build area: one diamond per cell the armed building type may
+/// occupy, behind the PLACE cells. `sim::production::build_area_cells` owns
+/// which cells those are.
+fn build_area_instances(state: &AppState) -> Vec<SpriteInstance> {
+    let (Some(sim), Some(rules), Some(owner), Some(type_id)) = (
+        state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .map(|rt| &rt.simulation),
+        state.rules(),
+        crate::app::input::commands::preferred_local_owner_name(state),
+        state.armed_building_type(),
+    ) else {
+        return Vec::new();
+    };
+    let Some(obj) = rules.object(type_id) else {
+        return Vec::new();
+    };
+    crate::sim::production::build_area_cells(sim, rules, &owner, obj, state.overlay_registry())
+        .iter()
+        .map(build_area_diamond)
+        .collect()
+}
+
+/// One build-area diamond cell, drawn at its isometric tile position.
+fn build_area_diamond(cell: &crate::sim::production::BuildingPlacementCell) -> SpriteInstance {
+    let (x, y) = crate::map::terrain::iso_to_screen(cell.coord.0, cell.coord.1, cell.level as u8);
+    SpriteInstance {
+        position: [x, y],
+        size: [
+            crate::map::terrain::TILE_WIDTH,
+            crate::map::terrain::TILE_HEIGHT,
+        ],
+        uv_origin: [0.0, 0.0],
+        uv_size: [1.0, 1.0],
+        depth: 0.0003,
+        tint: BUILD_AREA_TINT,
+        alpha: BUILD_AREA_ALPHA,
+        ..Default::default()
+    }
 }
 
 /// Phobos `TacticalClass_DrawPlacement_PlacementPreview 0x6D528A`: the

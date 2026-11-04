@@ -795,29 +795,7 @@ pub fn is_within_build_area(
         return false;
     }
     for e in sim.substrate.entities.values() {
-        // A dying structure provides no build-area adjacency during its window.
-        if e.death.is_dying() || e.lifecycle.in_limbo() {
-            continue;
-        }
-        if e.category() != EntityCategory::Structure {
-            continue;
-        }
-        if !e.unit_delivery_provides_base_space() {
-            continue;
-        }
-        let provider_owner = sim.interner.resolve(e.owner());
-        let Some(existing) = sim.entity_object_type(e, rules) else {
-            continue;
-        };
-        if provider_owner.eq_ignore_ascii_case(owner) {
-            if !existing.base_normal {
-                continue;
-            }
-        } else if !(sim.session.game_options().build_off_ally
-            && existing.eligibile_for_ally_building
-            // The provider's house asks about the placer's (`0x004A900E`).
-            && is_allied_with(sim.house_alliances.as_map(), provider_owner, owner))
-        {
+        if !is_base_provider(sim, rules, owner, e) {
             continue;
         }
         //4A8F21..4A8FB9 uses declared dimensions for the placed ring;
@@ -861,4 +839,158 @@ fn cell_in_build_area_ring(
         && (min_y..=max_y).contains(&y)
         && !((placed_min_x..=placed_max_x).contains(&x)
             && (placed_min_y..=placed_max_y).contains(&y))
+}
+
+/// The base-provider filter `Display4A8EB0` applies before its ring test: a
+/// live Structure that lends base space, owned by the placer (`BaseNormal=`)
+/// or lent to it by `BuildOffAlly` (`EligibileForAllyBuilding=`; the provider's
+/// house asks about the placer's, `0x004A900E`). A dying structure provides no
+/// build-area adjacency during its window.
+fn is_base_provider(
+    sim: &Simulation,
+    rules: &RuleSet,
+    owner: &str,
+    entity: &crate::sim::game_entity::GameEntity,
+) -> bool {
+    if entity.death.is_dying() || entity.lifecycle.in_limbo() {
+        return false;
+    }
+    if entity.category() != EntityCategory::Structure {
+        return false;
+    }
+    if !entity.unit_delivery_provides_base_space() {
+        return false;
+    }
+    let provider_owner = sim.interner.resolve(entity.owner());
+    let Some(existing) = sim.entity_object_type(entity, rules) else {
+        return false;
+    };
+    if provider_owner.eq_ignore_ascii_case(owner) {
+        existing.base_normal
+    } else {
+        sim.session.game_options().build_off_ally
+            && existing.eligibile_for_ally_building
+            && is_allied_with(sim.house_alliances.as_map(), provider_owner, owner)
+    }
+}
+
+/// The base build area the placement overlay paints while `obj` is armed: the
+/// union of every base provider's band (`IsWithinBuildArea`'s own reach,
+/// `0x004A8EB0` and `0x004A8F21..0x004A8FB9`) with the cells the placing type's
+/// own ground refuses taken out (`CellClass::Is_Clear_To_Build @ 0x0047C620`'s
+/// playfield, overlay and ground arms).
+///
+/// Objects standing in the area are deliberately not consulted: a unit
+/// crossing the base must not punch a hole in it, and a placed structure is
+/// still inside the base's extent. Read-only, and never a placement decision —
+/// the click keeps asking [`is_within_build_area`] and the foundation's own
+/// admission. An empty result means the type has no base extent to draw
+/// (`Adjacent=` negative, or an upgrade whose every host refuses it).
+pub fn build_area_cells(
+    sim: &Simulation,
+    rules: &RuleSet,
+    owner: &str,
+    obj: &ObjectType,
+    overlay_registry: Option<&OverlayTypeRegistry>,
+) -> Vec<BuildingPlacementCell> {
+    let Some(terrain) = sim.resolved_terrain.as_ref() else {
+        return Vec::new();
+    };
+    let cells = crate::map::resolved_terrain::NativeCellQuery::isolated(terrain);
+    let owner_id = sim.interner.get(owner);
+    let speed = crate::sim::build_site::building_speed_type(obj);
+    let map_w = i32::from(terrain.width());
+    let map_h = i32::from(terrain.height());
+    let mut area: Vec<BuildingPlacementCell> = Vec::new();
+    // An upgrade stands on its own host building, outside the proximity band
+    // (`IsWithinBuildArea` is false for it), so its extent is the host cells
+    // that admission accepts.
+    if obj.building_upgrade().host().is_some() {
+        let Some(owner_id) = owner_id else {
+            return area;
+        };
+        for entity in sim.substrate.entities.values() {
+            if entity.death.is_dying()
+                || entity.lifecycle.in_limbo()
+                || entity.category() != EntityCategory::Structure
+                || !sim
+                    .interner
+                    .resolve(entity.owner())
+                    .eq_ignore_ascii_case(owner)
+                || !sim.can_install_building_upgrade(entity.stable_id(), obj, owner_id, rules)
+            {
+                continue;
+            }
+            area.extend(
+                crate::sim::occupancy::entity_occupancy_cells(entity)
+                    .into_iter()
+                    .map(|coord| build_area_cell(&cells, coord)),
+            );
+        }
+        return area;
+    }
+    if obj.adjacent < 0 {
+        // No proximity band exists for this type: `IsWithinBuildArea` is false
+        // at every cell, so there is no base extent to draw.
+        return area;
+    }
+    // `IsWithinBuildArea` asks whether a provider cell lies in the *placed*
+    // footprint's band (`cell_in_build_area_ring`), so the ground a legal
+    // placement can cover reaches `Adjacent+1` beyond the footprint on every
+    // side: `Adjacent` plus the footprint span, on each axis.
+    let (min_x, min_y, max_x, max_y) = obj.foundation.cell_bounds();
+    let span_x = i32::from(max_x) - i32::from(min_x) + 1;
+    let span_y = i32::from(max_y) - i32::from(min_y) + 1;
+    let expansion_x = obj.adjacent.saturating_add(span_x);
+    let expansion_y = obj.adjacent.saturating_add(span_y);
+    let mut in_area = vec![false; usize::try_from(map_w * map_h).unwrap_or(0)];
+    for entity in sim.substrate.entities.values() {
+        if !is_base_provider(sim, rules, owner, entity) {
+            continue;
+        }
+        for (rx, ry) in crate::sim::occupancy::entity_occupancy_cells(entity) {
+            let (cx, cy) = (i32::from(rx), i32::from(ry));
+            for y in (cy - expansion_y).max(0)..=(cy + expansion_y).min(map_h - 1) {
+                for x in (cx - expansion_x).max(0)..=(cx + expansion_x).min(map_w - 1) {
+                    in_area[(y * map_w + x) as usize] = true;
+                }
+            }
+        }
+    }
+    for y in 0..map_h {
+        for x in 0..map_w {
+            if !in_area[(y * map_w + x) as usize] {
+                continue;
+            }
+            let identity = cells.lookup((x as i16, y as i16));
+            if crate::sim::build_site::ground_admits(
+                sim,
+                rules,
+                overlay_registry,
+                identity,
+                speed,
+                Some(obj),
+                owner_id,
+                &cells,
+            ) {
+                area.push(build_area_cell(&cells, (x as u16, y as u16)));
+            }
+        }
+    }
+    area
+}
+
+/// One display cell: its coordinate with the current Cell ground fields the
+/// PLACE cells read (`Cell47EC90`).
+fn build_area_cell(
+    cells: &crate::map::resolved_terrain::NativeCellQuery<'_>,
+    coord: (u16, u16),
+) -> BuildingPlacementCell {
+    let (level, slope) = cells.ground_fields(cells.lookup((coord.0 as i16, coord.1 as i16)));
+    BuildingPlacementCell {
+        coord,
+        valid: true,
+        level: level as i8,
+        slope,
+    }
 }

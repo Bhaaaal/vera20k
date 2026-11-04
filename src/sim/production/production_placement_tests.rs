@@ -2968,6 +2968,95 @@ fn base_normal_false_structures_do_not_extend_build_area() {
     assert!(placed, "the yard's own area admits the same building");
 }
 
+/// The base build area is the union of every provider's `Adjacent+1` band, and
+/// objects standing in it do not punch holes: a unit parked inside the band and
+/// the provider's own footprint both stay inside the base's extent.
+#[test]
+fn build_area_cells_union_the_provider_band_over_the_objects_in_it() {
+    let mut sim = placement_sim();
+    let rules = placement_radius_rules();
+    spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
+    // The raw fixture starts with a 1x1 footprint; the provider's marked 2x2
+    // is what widens the band.
+    sim.remove_entity_occupancy(1);
+    stamp_type_foundation(&mut sim, &rules, 1);
+    assert!(sim.mark_entity_put(1, crate::sim::world::UninitContext::with_rules(&rules)));
+    // A unit parked inside the band, without UnitClass::Unlimbo's entry test,
+    // must not cut a hole in the painted extent.
+    let terrain = sim.resolved_terrain.take();
+    sim.spawn_object("MTNK", "Americans", 9, 9, 0, &rules)
+        .expect("fixture tank spawns");
+    sim.resolved_terrain = terrain;
+    ready_building(&mut sim, &rules, "Americans", "GAPOWR");
+
+    let area = crate::sim::production::build_area_cells(
+        &sim,
+        &rules,
+        "Americans",
+        rules.object("GAPOWR").unwrap(),
+        None,
+    );
+
+    let cells: std::collections::BTreeSet<(u16, u16)> = area.iter().map(|c| c.coord).collect();
+    // GAPOWR has Adjacent=0 and a 2x2 footprint, so a legal placement's ground
+    // reaches two cells beyond the yard's 2x2 at (10,10)..(11,11).
+    let expected: std::collections::BTreeSet<(u16, u16)> = (8..=13)
+        .flat_map(|x| (8..=13).map(move |y| (x, y)))
+        .collect();
+    assert_eq!(cells, expected);
+    assert!(
+        area.iter().all(|cell| cell.valid && cell.level == 0),
+        "every painted cell carries its current ground fields"
+    );
+}
+
+/// The band is the base's extent; the ground itself still decides. A sloped
+/// cell inside it — and, with no provider at all, every cell — is not painted.
+#[test]
+fn build_area_cells_drop_cells_their_own_ground_refuses() {
+    const SLOPED: (u16, u16) = (11, 12);
+    let mut sim = Simulation::new();
+    install_refinery_test_terrain_on(&mut sim, |cell| {
+        if (cell.rx, cell.ry) == SLOPED {
+            cell.slope_type = 2;
+        }
+    });
+    let rules = placement_radius_rules();
+    spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
+    sim.remove_entity_occupancy(1);
+    stamp_type_foundation(&mut sim, &rules, 1);
+    assert!(sim.mark_entity_put(1, crate::sim::world::UninitContext::with_rules(&rules)));
+    ready_building(&mut sim, &rules, "Americans", "GAPOWR");
+    let area = crate::sim::production::build_area_cells(
+        &sim,
+        &rules,
+        "Americans",
+        rules.object("GAPOWR").unwrap(),
+        None,
+    );
+    let cells: std::collections::BTreeSet<(u16, u16)> = area.iter().map(|c| c.coord).collect();
+    assert!(!cells.contains(&SLOPED), "a sloped cell is not buildable");
+    assert!(cells.contains(&(11, 11)), "its flat neighbour still is");
+    assert!(
+        cells.contains(&(8, 8)),
+        "the footprint's own reach is painted"
+    );
+
+    let mut bare = placement_sim();
+    ready_building(&mut bare, &rules, "Americans", "GAPOWR");
+    assert!(
+        crate::sim::production::build_area_cells(
+            &bare,
+            &rules,
+            "Americans",
+            rules.object("GAPOWR").unwrap(),
+            None,
+        )
+        .is_empty(),
+        "no provider, no base extent"
+    );
+}
+
 /// BuildOffAlly lends an allied structure's build area only while the game
 /// option is on and the structure is `EligibileForAllyBuilding=`.
 #[test]

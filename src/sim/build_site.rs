@@ -183,6 +183,25 @@ pub(crate) fn is_clear_to_build(
     {
         return false;
     }
+    ground_admits(sim, rules, registry, cell, speed, ty, house, cells)
+}
+
+/// `Is_Clear_To_Build`'s playfield, overlay and ground arms, without the
+/// objects standing on the cell (`objects_admit` above). The armed placement's
+/// base-area display asks this to paint the ground its building type may
+/// occupy, so a unit crossing the base cannot punch a hole in it.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn ground_admits(
+    sim: &Simulation,
+    rules: &RuleSet,
+    registry: Option<&OverlayTypeRegistry>,
+    cell: NativeCellIdentity,
+    speed: Option<SpeedType>,
+    ty: Option<&ObjectType>,
+    house: Option<InternedId>,
+    cells: &NativeCellQuery<'_>,
+) -> bool {
+    let terrain = cells.terrain();
     if !crate::sim::cell_rect::retained_cell_is_in_playfield(cell, sim.playfield_bounds(), cells) {
         return false;
     }
