@@ -405,6 +405,24 @@ pub(crate) fn place_production_with_overlays(
     else {
         return false;
     };
+    // VERA's site maintenance before Unlimbo's own admission: a site the placer
+    // may use clears its plain trees, and the placer's non-hostile units are
+    // told to leave (`Flush_For_Placement`). Units still standing in the
+    // foundation refuse this attempt — the ready object is retained — so the
+    // player places again once they have moved out, instead of the building
+    // landing on top of them.
+    if is_within_build_area(sim, rules, owner, obj, rx, ry) {
+        crate::sim::build_site::clear_placement_trees(sim, rules, obj, (rx as i16, ry as i16));
+        let _ = crate::sim::build_site::flush_for_placement(
+            sim,
+            rules,
+            overlay_registry,
+            obj,
+            (rx as i16, ry as i16),
+            owner_id,
+            effects,
+        );
+    }
     // Original PLACE4FB1DA keeps Object::FindFactory(0,0)'s yard through
     // HELLO, Unlimbo (including the wall arm), the child's C message and the
     // yard's FirstContact BREAK. The House factory owns the completed object.
@@ -941,6 +959,14 @@ pub fn build_area_cells(
                 continue;
             }
             let coord = (x as u16, y as u16);
+            // Ground the local player has not mapped is not offered: the click
+            // gates refuse it (`MapClass::IsShrouded @ 0x00586360`), so painting
+            // it green would promise a site that cannot be used.
+            if sim.session.current_house().is_some_and(|viewer| {
+                crate::sim::vision::cell_is_shrouded(&sim.fog, &cells, viewer, coord)
+            }) {
+                continue;
+            }
             let identity = cells.lookup((x as i16, y as i16));
             let ground = crate::sim::build_site::ground_admission(
                 sim,

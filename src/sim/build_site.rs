@@ -326,6 +326,51 @@ pub(crate) fn cell_holds_structure(
         })
 }
 
+/// VERA: clear the plain trees standing on `ty`'s foundation so a site under
+/// them can be used. `Is_Clear_To_Build`'s object arm (`0x0047C866`) refuses any
+/// Terrain object, so this deliberately relaxes that arm for the
+/// [`crate::rules::terrain_object_type::TerrainObjectType::is_plain_tree`]
+/// family only: tiberium trees, veinhole trees, boxes, ice floes, light posts,
+/// signs, traffic lights, speakers and the stone prop keep blocking. The
+/// removal runs through the lifecycle owner, which unlinks the object from its
+/// cell now and defers its physical disposal, so the foundation's own clear test
+/// already sees the freed cell. Returns how many objects were cleared.
+pub(crate) fn clear_placement_trees(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    ty: &ObjectType,
+    origin: (i16, i16),
+) -> usize {
+    if origin == (0, 0) || sim.terrain_objects().objects().is_empty() {
+        return 0;
+    }
+    let mut doomed: Vec<u64> = Vec::new();
+    for (dx, dy) in ty.foundation.cell_offsets() {
+        let cell = (origin.0.wrapping_add(dx), origin.1.wrapping_add(dy));
+        let (Ok(rx), Ok(ry)) = (u16::try_from(cell.0), u16::try_from(cell.1)) else {
+            continue;
+        };
+        for id in sim.terrain_objects().members_at((rx, ry)) {
+            if doomed.contains(&id) {
+                continue;
+            }
+            let tree = sim
+                .terrain_objects()
+                .get(id)
+                .map(|terrain| sim.interner.resolve(terrain.type_ref()))
+                .and_then(|name| rules.terrain_object_type_case_insensitive(name))
+                .is_some_and(|terrain| terrain.is_plain_tree());
+            if tree {
+                doomed.push(id);
+            }
+        }
+    }
+    for id in &doomed {
+        sim.uninit_with_context(*id, crate::sim::world::UninitContext::with_rules(rules));
+    }
+    doomed.len()
+}
+
 /// What `BuildingTypeClass::Flush_For_Placement @ 0x0045EE70` answers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Flush {
@@ -393,11 +438,18 @@ pub(crate) fn flush_for_placement(
         let Some(object) = sim.substrate.entities.get(id) else {
             continue;
         };
-        let allied = crate::map::houses::is_allied_with(
+        // A unit whose house is not an enemy makes way: an allied house, or one
+        // of the passive houses (`MultiplayPassive=`; stock Neutral/Civilian
+        // and Special set it). VERA widens the native ally test with the second
+        // arm so a civilian standing in the site is told to leave too.
+        let non_hostile = crate::map::houses::is_allied_with(
             sim.house_alliances.as_map(),
             sim.interner.resolve(object.owner()),
             sim.interner.resolve(house),
-        );
+        ) || sim
+            .houses
+            .get(&object.owner())
+            .is_some_and(crate::sim::house_state::HouseState::multiplay_passive);
         if object.category() == EntityCategory::Structure {
             // Flush45EF68..45EF7B skips this host, then scans the remaining
             // foundation cells. Overlay admission above still applies.
@@ -406,7 +458,7 @@ pub(crate) fn flush_for_placement(
             }
             return Flush::Blocked;
         }
-        if !allied {
+        if !non_hostile {
             return Flush::Blocked;
         }
         scattered = true;

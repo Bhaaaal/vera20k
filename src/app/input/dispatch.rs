@@ -500,6 +500,14 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
 /// click issues—while selection, band selection and building placement stay on
 /// the left button (`left_up_branches` and `tactical_left_up`).
 fn modern_right_click(state: &mut AppState) {
+    // A pending building placement is cancelled here, the rung the stock
+    // right-click ladder reaches first (`right_click_cancel_ladder` ->
+    // `cancel_pointer_mode`): the modern layout otherwise spends the button on
+    // an order and leaves the placement armed.
+    if state.match_state.input.cancel_building_placement() {
+        log::info!("Modern controls: right click cancelled the pending placement");
+        return;
+    }
     // A super weapon keeps gamemd's direction here too: the right button
     // cancels the aim instead of ordering, for both the battlefield and the
     // radar (`radar::right_press` does the same there).

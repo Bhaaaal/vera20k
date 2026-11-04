@@ -3191,6 +3191,220 @@ fn build_area_report_names_the_attempt_providers_and_gates() {
     );
 }
 
+/// VERA's site rule: a plain tree on the foundation is cleared and the building
+/// lands, while the tiberium tree is not a plain tree and keeps blocking.
+#[test]
+fn placement_clears_a_plain_tree_but_not_a_tiberium_tree() {
+    let mut sim = placement_sim();
+    let rules = tree_placement_rules();
+    spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
+    sim.remove_entity_occupancy(1);
+    stamp_type_foundation(&mut sim, &rules, 1);
+    assert!(sim.mark_entity_put(1, crate::sim::world::UninitContext::with_rules(&rules)));
+    ready_building(&mut sim, &rules, "Americans", "GAPOWR");
+    crate::sim::terrain_spawn::construct_terrain_objects(
+        &mut sim,
+        &[crate::map::overlay::TerrainObject {
+            rx: 12,
+            ry: 10,
+            name: "TREE01".to_string(),
+        }],
+        &rules,
+        false,
+    );
+    assert_eq!(
+        sim.terrain_objects().members_at((12, 10)).count(),
+        1,
+        "the fixture tree stands on the site"
+    );
+    let preview = preview_at(&sim, &rules, "Americans", "GAPOWR", (12, 10), None);
+    assert_eq!(preview.reason, Some(BuildingPlacementError::BlockedTerrain));
+
+    assert!(
+        place_building(&mut sim, &rules, "Americans", "GAPOWR", (12, 10), None),
+        "the tree is cleared and the building lands"
+    );
+    assert_eq!(
+        sim.terrain_objects().members_at((12, 10)).count(),
+        0,
+        "the cleared tree no longer holds the cell"
+    );
+
+    // A tiberium tree is a tiberium source, not a plain tree: it keeps blocking.
+    let mut blocked = placement_sim();
+    spawn_structure(&mut blocked, &rules, 1, "Americans", "GACNST", 10, 10);
+    blocked.remove_entity_occupancy(1);
+    stamp_type_foundation(&mut blocked, &rules, 1);
+    assert!(blocked.mark_entity_put(1, crate::sim::world::UninitContext::with_rules(&rules)));
+    ready_building(&mut blocked, &rules, "Americans", "GAPOWR");
+    crate::sim::terrain_spawn::construct_terrain_objects(
+        &mut blocked,
+        &[crate::map::overlay::TerrainObject {
+            rx: 12,
+            ry: 10,
+            name: "TIBTRE01".to_string(),
+        }],
+        &rules,
+        false,
+    );
+    assert!(!place_building(
+        &mut blocked,
+        &rules,
+        "Americans",
+        "GAPOWR",
+        (12, 10),
+        None
+    ));
+    assert_eq!(
+        blocked.terrain_objects().members_at((12, 10)).count(),
+        1,
+        "the tiberium tree stays"
+    );
+}
+
+/// The placement site warns the placer's non-hostile units away — its own, its
+/// allies' and a passive (neutral/civilian) house's — and still refuses that
+/// attempt, so the building never lands on top of them. An enemy unit blocks
+/// without being moved.
+#[test]
+fn placement_warns_non_hostile_units_away_and_enemies_block() {
+    let mut sim = placement_sim();
+    let rules = placement_radius_rules();
+    spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
+    // `flush_for_placement` walks the MapClass diamond (`MapClass::In_Bounds`),
+    // so the fixture's Size width must be real before any cell answers.
+    sim.set_playfield_bounds_for_test(Some(crate::map::playfield::PlayfieldBounds {
+        base: 64,
+        off_fc: -100,
+        off_100: -100,
+        off_104: 200,
+        off_108: 200,
+    }));
+    let yard = rules.object("GACNST").unwrap();
+    let owner = sim.interner.get("Americans").unwrap();
+    let neutral = sim.interner.intern("Neutral");
+    sim.houses_mut_for_test()
+        .get_or_register_for_test(neutral, || {
+            crate::sim::house_state::HouseState::new(neutral, 2, Some(neutral), false, 0, 0)
+        });
+    if let Some(house) = sim.houses_mut_for_test().get_mut(&neutral) {
+        house.set_multiplay_passive_for_test(true);
+    }
+    let flush = |sim: &mut Simulation, cell: (u16, u16)| {
+        crate::sim::build_site::flush_for_placement(
+            sim,
+            &rules,
+            None,
+            yard,
+            (cell.0 as i16, cell.1 as i16),
+            owner,
+            crate::sim::world::FrameEffects::default(),
+        )
+    };
+
+    // Own unit: told to leave. The fixture's Size diamond (`width < x + y`)
+    // only admits cells away from the origin, and `flush_for_placement` walks
+    // that MapClass diamond like the native caller does.
+    let terrain = sim.resolved_terrain.take();
+    let own = sim
+        .spawn_object("MTNK", "Americans", 40, 40, 0, &rules)
+        .expect("own tank spawns");
+    sim.resolved_terrain = terrain;
+    assert_eq!(
+        flush(&mut sim, (40, 40)),
+        crate::sim::build_site::Flush::Scattered
+    );
+
+    // Passive house unit: told to leave as well.
+    let terrain = sim.resolved_terrain.take();
+    sim.spawn_object("MTNK", "Neutral", 41, 40, 0, &rules)
+        .expect("neutral tank spawns");
+    sim.resolved_terrain = terrain;
+    assert_eq!(
+        flush(&mut sim, (41, 40)),
+        crate::sim::build_site::Flush::Scattered
+    );
+
+    // Enemy unit: blocks and is left alone.
+    let terrain = sim.resolved_terrain.take();
+    sim.spawn_object("MTNK", "Russians", 42, 40, 0, &rules)
+        .expect("enemy tank spawns");
+    sim.resolved_terrain = terrain;
+    assert_eq!(
+        flush(&mut sim, (42, 40)),
+        crate::sim::build_site::Flush::Blocked
+    );
+
+    assert!(sim.substrate.entities.contains(own));
+}
+
+/// The overlay offers only mapped ground: the click gates refuse shrouded cells
+/// (`MapClass::IsShrouded @ 0x00586360`), so the area paints nothing there.
+#[test]
+fn build_area_cells_skip_ground_the_player_has_not_mapped() {
+    let mut sim = placement_sim();
+    let rules = placement_radius_rules();
+    spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
+    ready_building(&mut sim, &rules, "Americans", "GAPOWR");
+    let owner = sim.interner.get("Americans").unwrap();
+    sim.session.set_current_house_for_test(Some(owner));
+    *sim.fog_mut_for_test() = crate::sim::vision::FogState::new(64, 64);
+
+    let area = crate::sim::production::build_area_cells(
+        &sim,
+        &rules,
+        "Americans",
+        rules.object("GAPOWR").unwrap(),
+        None,
+    );
+    assert!(
+        area.allowed.is_empty() && area.blocked.is_empty(),
+        "nothing is offered before any ground is mapped"
+    );
+
+    sim.fog
+        .reveal_cells_for_owner(owner, [(9u16, 9u16), (10u16, 9u16)]);
+    let area = crate::sim::production::build_area_cells(
+        &sim,
+        &rules,
+        "Americans",
+        rules.object("GAPOWR").unwrap(),
+        None,
+    );
+    let allowed: std::collections::BTreeSet<(u16, u16)> =
+        area.allowed.iter().map(|cell| cell.coord).collect();
+    assert!(allowed.contains(&(9, 9)), "mapped ground is offered");
+    assert!(
+        !allowed.contains(&(12, 12)),
+        "unmapped ground inside the area is not"
+    );
+}
+
+/// Two placement types plus the two tree families: `TREE01` is a plain tree the
+/// site clears, `TIBTRE01` is a tiberium source that keeps blocking.
+fn tree_placement_rules() -> RuleSet {
+    let ini = IniFile::from_str(
+        "[Countries]\n0=Americans\n1=Alliance\n2=Russians\n3=Soviet\n[InfantryTypes]\n\
+         [VehicleTypes]\n0=MTNK\n[AircraftTypes]\n[BuildingTypes]\n0=GACNST\n1=GAPOWR\n\
+         [TerrainTypes]\n0=TREE01\n1=TIBTRE01\n\
+         [GACNST]\nOwner=Americans\nStrength=1000\nArmor=wood\nTechLevel=1\n\
+         Foundation=2x2\nBaseNormal=yes\nFactory=BuildingType\n\
+         [GAPOWR]\nOwner=Americans\nStrength=750\nArmor=wood\nTechLevel=1\n\
+         Foundation=2x2\n\
+         [TREE01]\nStrength=200\nArmor=wood\n\
+         [TIBTRE01]\nStrength=200\nArmor=wood\nSpawnsTiberium=yes\nIsAnimated=yes\n\
+         [Clear]\nBuildable=yes\n",
+    );
+    RuleSet::from_ini_with_fixed_art_for_test(
+        &ini,
+        &IniFile::from_str(
+            "[GACNST]\nFoundation=2x2\n[GAPOWR]\nFoundation=2x2\n\
+             [TREE01]\nFoundation=1x1\n[TIBTRE01]\nFoundation=1x1\n",
+        ),
+    )
+    .expect("tree placement rules and ART should parse")
+}
+
 /// BuildOffAlly lends an allied structure's build area only while the game
 /// option is on and the structure is `EligibileForAllyBuilding=`.
 #[test]
