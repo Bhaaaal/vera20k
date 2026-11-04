@@ -874,18 +874,24 @@ fn is_base_provider(
     }
 }
 
-/// The base build area the placement overlay paints while `obj` is armed: the
-/// union of every base provider's band (`IsWithinBuildArea`'s own reach,
-/// `0x004A8EB0` and `0x004A8F21..0x004A8FB9`) with the cells the placing type's
-/// own ground refuses taken out (`CellClass::Is_Clear_To_Build @ 0x0047C620`'s
-/// playfield, overlay and ground arms).
+/// The base build area the placement overlay paints while `obj` is armed: every
+/// cell the player may click to place it, which is the set the click gate itself
+/// admits — [`is_within_build_area`] for the cell's own placement anchor
+/// (`placement_origin_at_cursor`, `4A94F0`/`4A8C9E`) with the whole foundation
+/// passing the type's ground (`CellClass::Is_Clear_To_Build @ 0x0047C620`'s
+/// playfield, overlay and ground arms) and holding no structure.
 ///
-/// Objects standing in the area are deliberately not consulted: a unit
-/// crossing the base must not punch a hole in it, and a placed structure is
-/// still inside the base's extent. Read-only, and never a placement decision —
-/// the click keeps asking [`is_within_build_area`] and the foundation's own
-/// admission. An empty result means the type has no base extent to draw
-/// (`Adjacent=` negative, or an upgrade whose every host refuses it).
+/// The painted set must be the *cursor* cells, never the union of the
+/// foundations a legal placement covers: a click anchors the footprint at
+/// `cursor - (span-1)/2`, so a covered-ground union sits one footprint inside
+/// the clickable area on its north-west edge and one outside it on the
+/// south-east edge, where the overlay promises a site the click refuses.
+///
+/// Units are deliberately not consulted: they are scattered by
+/// `Flush_For_Placement 0x0045EE70`, so a tank crossing the base must not punch
+/// a hole in it. Read-only, and never a placement decision. An empty result
+/// means the type has no base extent to draw (`Adjacent=` negative, or an
+/// upgrade whose every host refuses it).
 pub fn build_area_cells(
     sim: &Simulation,
     rules: &RuleSet,
@@ -934,46 +940,87 @@ pub fn build_area_cells(
         // at every cell, so there is no base extent to draw.
         return area;
     }
+    let (width, height) = obj.foundation.dimensions();
     // `IsWithinBuildArea` asks whether a provider cell lies in the *placed*
-    // footprint's band (`cell_in_build_area_ring`), so the ground a legal
-    // placement can cover reaches `Adjacent+1` beyond the footprint on every
-    // side: `Adjacent` plus the footprint span, on each axis.
+    // footprint's band: `cell_in_build_area_ring`'s reach for an anchor, which
+    // is what the same owner decides per click.
+    let expansion = obj.adjacent.saturating_add(1);
     let (min_x, min_y, max_x, max_y) = obj.foundation.cell_bounds();
     let span_x = i32::from(max_x) - i32::from(min_x) + 1;
     let span_y = i32::from(max_y) - i32::from(min_y) + 1;
-    let expansion_x = obj.adjacent.saturating_add(span_x);
-    let expansion_y = obj.adjacent.saturating_add(span_y);
-    let mut in_area = vec![false; usize::try_from(map_w * map_h).unwrap_or(0)];
+    let mut anchor_in_area = vec![false; usize::try_from(map_w * map_h).unwrap_or(0)];
+    let mut bounds: Option<(i32, i32, i32, i32)> = None;
     for entity in sim.substrate.entities.values() {
         if !is_base_provider(sim, rules, owner, entity) {
             continue;
         }
         for (rx, ry) in crate::sim::occupancy::entity_occupancy_cells(entity) {
-            let (cx, cy) = (i32::from(rx), i32::from(ry));
-            for y in (cy - expansion_y).max(0)..=(cy + expansion_y).min(map_h - 1) {
-                for x in (cx - expansion_x).max(0)..=(cx + expansion_x).min(map_w - 1) {
-                    in_area[(y * map_w + x) as usize] = true;
+            let (px, py) = (i32::from(rx), i32::from(ry));
+            // An anchor whose footprint covers `provider` does not spend it
+            // (`cell_in_build_area_ring` excludes the placed rectangle), so the
+            // band is the same ring the click's own owner tests.
+            for ay in (py - expansion - (span_y - 1)).max(0)..=(py + expansion).min(map_h - 1) {
+                for ax in (px - expansion - (span_x - 1)).max(0)..=(px + expansion).min(map_w - 1) {
+                    if cell_in_build_area_ring(
+                        (ax as u16, ay as u16, width, height),
+                        (rx, ry),
+                        obj.adjacent,
+                    ) {
+                        anchor_in_area[(ay * map_w + ax) as usize] = true;
+                        bounds = Some(bounds.map_or((ax, ay, ax, ay), |(x0, y0, x1, y1)| {
+                            (x0.min(ax), y0.min(ay), x1.max(ax), y1.max(ay))
+                        }));
+                    }
                 }
             }
         }
     }
-    for y in 0..map_h {
-        for x in 0..map_w {
-            if !in_area[(y * map_w + x) as usize] {
+    let Some((min_ax, min_ay, max_ax, max_ay)) = bounds else {
+        return area;
+    };
+    // Anchors map to the cursor cells the player clicks, by the owner of that
+    // offset rather than a second copy of its arithmetic. The offset is at most
+    // zero, so a probe far inside the map reads it back without wrapping.
+    let origin_at = |cursor: (u16, u16)| obj.foundation.placement_origin_at_cursor(cursor);
+    const PROBE: u16 = 1000;
+    let probe = origin_at((PROBE, PROBE));
+    let (off_x, off_y) = (
+        i32::from(probe.0) - i32::from(PROBE),
+        i32::from(probe.1) - i32::from(PROBE),
+    );
+    for cy in (min_ay - off_y).max(0)..=(max_ay - off_y).min(map_h - 1) {
+        for cx in (min_ax - off_x).max(0)..=(max_ax - off_x).min(map_w - 1) {
+            let (ax, ay) = origin_at((cx as u16, cy as u16));
+            let (ax, ay) = (i32::from(ax), i32::from(ay));
+            if ax < 0 || ay < 0 || ax >= map_w || ay >= map_h {
                 continue;
             }
-            let identity = cells.lookup((x as i16, y as i16));
-            if crate::sim::build_site::ground_admits(
-                sim,
-                rules,
-                overlay_registry,
-                identity,
-                speed,
-                Some(obj),
-                owner_id,
-                &cells,
-            ) {
-                area.push(build_area_cell(&cells, (x as u16, y as u16)));
+            if !anchor_in_area[(ay * map_w + ax) as usize] {
+                continue;
+            }
+            // The click places the whole foundation: every one of its cells must
+            // clear the type's ground and hold no structure, or `CanPlaceAt`
+            // refuses the site the overlay just offered.
+            let fits = obj.foundation.cell_offsets().into_iter().all(|(dx, dy)| {
+                let at = (ax as i32 + i32::from(dx), ay as i32 + i32::from(dy));
+                if at.0 < 0 || at.1 < 0 || at.0 >= map_w || at.1 >= map_h {
+                    return false;
+                }
+                let identity = cells.lookup((at.0 as i16, at.1 as i16));
+                !crate::sim::build_site::cell_holds_structure(sim, &cells, identity)
+                    && crate::sim::build_site::ground_admits(
+                        sim,
+                        rules,
+                        overlay_registry,
+                        identity,
+                        speed,
+                        Some(obj),
+                        owner_id,
+                        &cells,
+                    )
+            });
+            if fits {
+                area.push(build_area_cell(&cells, (cx as u16, cy as u16)));
             }
         }
     }

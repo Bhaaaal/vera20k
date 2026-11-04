@@ -255,6 +255,33 @@ pub(crate) fn ground_admits(
     }
 }
 
+/// Whether a Structure or a Terrain object stands on `cell`: the part of
+/// `Is_Clear_To_Build`'s object arm (`0x0047C866`) that a placement cannot
+/// clear by scattering a unit. The armed placement's base-area display asks it
+/// so it never paints a cell a building or a tree already fills.
+pub(crate) fn cell_holds_structure(
+    sim: &Simulation,
+    cells: &NativeCellQuery<'_>,
+    cell: NativeCellIdentity,
+) -> bool {
+    if cell == NativeCellIdentity::Dummy {
+        return false;
+    }
+    let (rx, ry) = cells.coord(cell);
+    let (Ok(rx), Ok(ry)) = (u16::try_from(rx), u16::try_from(ry)) else {
+        return false;
+    };
+    sim.cell_objects((rx, ry), MovementLayer::Ground)
+        .any(|member| match member {
+            CellObjectMember::Terrain(_) => true,
+            CellObjectMember::Entity(id) => sim
+                .substrate
+                .entities
+                .get(id)
+                .is_some_and(|entity| entity.category() == EntityCategory::Structure),
+        })
+}
+
 /// What `BuildingTypeClass::Flush_For_Placement @ 0x0045EE70` answers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Flush {

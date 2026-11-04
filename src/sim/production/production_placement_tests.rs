@@ -2968,11 +2968,13 @@ fn base_normal_false_structures_do_not_extend_build_area() {
     assert!(placed, "the yard's own area admits the same building");
 }
 
-/// The base build area is the union of every provider's `Adjacent+1` band, and
-/// objects standing in it do not punch holes: a unit parked inside the band and
-/// the provider's own footprint both stay inside the base's extent.
+/// The painted cells are the ones a click places on, not the ground a legal
+/// foundation covers: a 2x2 click anchors its north-west corner on the cursor
+/// (`4A94F0`/`4A8C9E`), so the reach stops at the anchor band's edge and never
+/// runs one footprint past it. Units do not punch holes; the provider's own
+/// footprint is not offered.
 #[test]
-fn build_area_cells_union_the_provider_band_over_the_objects_in_it() {
+fn build_area_cells_are_the_clickable_anchors_of_the_provider_band() {
     let mut sim = placement_sim();
     let rules = placement_radius_rules();
     spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
@@ -2998,23 +3000,32 @@ fn build_area_cells_union_the_provider_band_over_the_objects_in_it() {
     );
 
     let cells: std::collections::BTreeSet<(u16, u16)> = area.iter().map(|c| c.coord).collect();
-    // GAPOWR has Adjacent=0 and a 2x2 footprint, so a legal placement's ground
-    // reaches two cells beyond the yard's 2x2 at (10,10)..(11,11).
-    let expected: std::collections::BTreeSet<(u16, u16)> = (8..=13)
-        .flat_map(|x| (8..=13).map(move |y| (x, y)))
+    // GAPOWR has Adjacent=0 and a 2x2 footprint: an anchor reaches one cell
+    // north-west of the yard's far cell and one cell north-west of its near
+    // cell, i.e. (8,8)..(12,12). Anchors whose 2x2 would stand on the yard at
+    // (10,10)..(11,11) are refused (`cell_in_build_area_ring` excludes the
+    // placed rectangle; `CanPlaceAt` refuses the overlap).
+    let expected: std::collections::BTreeSet<(u16, u16)> = (8..=12)
+        .flat_map(|x| (8..=12).map(move |y| (x, y)))
+        .filter(|&(x, y)| !((9..=11).contains(&x) && (9..=11).contains(&y)))
         .collect();
     assert_eq!(cells, expected);
+    assert!(
+        !cells.contains(&(13, 13)),
+        "the far corner of a legal foundation is not a place the click accepts"
+    );
     assert!(
         area.iter().all(|cell| cell.valid && cell.level == 0),
         "every painted cell carries its current ground fields"
     );
 }
 
-/// The band is the base's extent; the ground itself still decides. A sloped
-/// cell inside it — and, with no provider at all, every cell — is not painted.
+/// The click places the whole foundation, so the painted cell asks the ground
+/// of every foundation cell: a sloped neighbour refuses the site even when the
+/// cursor cell itself is flat. With no provider, nothing is painted.
 #[test]
-fn build_area_cells_drop_cells_their_own_ground_refuses() {
-    const SLOPED: (u16, u16) = (11, 12);
+fn build_area_cells_ask_the_whole_foundations_ground() {
+    const SLOPED: (u16, u16) = (13, 13);
     let mut sim = Simulation::new();
     install_refinery_test_terrain_on(&mut sim, |cell| {
         if (cell.rx, cell.ry) == SLOPED {
@@ -3035,11 +3046,13 @@ fn build_area_cells_drop_cells_their_own_ground_refuses() {
         None,
     );
     let cells: std::collections::BTreeSet<(u16, u16)> = area.iter().map(|c| c.coord).collect();
-    assert!(!cells.contains(&SLOPED), "a sloped cell is not buildable");
-    assert!(cells.contains(&(11, 11)), "its flat neighbour still is");
     assert!(
-        cells.contains(&(8, 8)),
-        "the footprint's own reach is painted"
+        !cells.contains(&(12, 12)),
+        "that site's 2x2 would stand on the sloped cell"
+    );
+    assert!(
+        cells.contains(&(12, 10)),
+        "the same anchor column one row up clears the slope"
     );
 
     let mut bare = placement_sim();
