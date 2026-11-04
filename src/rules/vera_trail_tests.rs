@@ -101,3 +101,22 @@ fn the_art_registry_resolves_a_type_section_list() {
     assert!(registry.vera_trail_styles("PLAIN").is_empty());
     assert!(registry.vera_trail_styles("MISSING").is_empty());
 }
+
+#[test]
+fn the_intruder_example_art_fixture_resolves_three_trails() {
+    use crate::rules::art_data::ArtRegistry;
+
+    let art = IniFile::from_str(crate::test_fixture::text(
+        "tests/fixtures/ini/verax_trails_art_example.ini",
+    ));
+    let registry = ArtRegistry::from_ini(&art);
+    let styles = registry.vera_trail_styles("FALC");
+    assert_eq!(styles.len(), 3, "two wing tips and one exhaust");
+    assert_eq!(styles[0].flh, [0, -90, 10]);
+    assert_eq!(styles[0].color, [255, 255, 255]);
+    assert_eq!(styles[0].color2, Some([96, 160, 255]));
+    assert_eq!(styles[0].z_order, 1);
+    assert_eq!(styles[1].flh, [0, 90, 10]);
+    assert_eq!(styles[2].flh, [-80, 0, 5]);
+    assert_eq!(styles[2].z_order, 0, "the exhaust draws behind the wings");
+}

@@ -78,6 +78,16 @@ coordinate, exactly where the retail `UseLineTrail` ring anchors.
 - `DetailLevel=0` narrows each trail to one pixel and drops the colour gradient;
   the samples themselves still age normally.
 
+## Example: Allied Intruder
+
+`tests/fixtures/ini/verax_trails_art_example.ini` is the exact snippet the
+regression test reads: two wing-tip trails at `±90` leptons of lateral offset and
+one exhaust trail `80` leptons behind the hull. Rules type `[ORCA]` declares
+`Image=FALC`, so the list lives in ART section `[FALC]`; FALC is a voxel
+aircraft, so the wing anchors follow its Fly pitch and roll. Paste those sections
+into `artmd.ini` (the ART document the game folder reads) and build with
+`--features verax` to see it in play.
+
 ## Drawing
 
 Each segment becomes one `SurfaceLine` per pixel row of its width: rows are
