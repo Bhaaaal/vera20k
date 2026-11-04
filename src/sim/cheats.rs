@@ -89,6 +89,8 @@ pub(crate) struct DebugToolsState {
     owner: Option<InternedId>,
     pending: u8,
     event_logging: bool,
+    /// Test Mode already walked the owner's shroud once; the reveal is one-way.
+    revealed_map: bool,
     modified: bool,
     replay_locked: bool,
     logged_entities: Vec<u64>,
@@ -305,6 +307,15 @@ impl Simulation {
                     instance.debug_charge_full(sw, frame);
                 }
             }
+        }
+        // Test Mode's reveal is the map itself, not only its drawing: the
+        // placement gates ask this fog (`MapClass::IsShrouded @ 0x00586360`)
+        // while the overlay's own area never consults it, so a drawing-only
+        // reveal refused sites inside the light green. This is the game's own
+        // reveal (`MapClass::Reveal @ 0x00577D90`), so every reader agrees.
+        if flags.reveal_map && !self.debug_tools.revealed_map {
+            self.debug_tools.revealed_map = true;
+            self.reveal_map_for_owner(owner, rules);
         }
     }
 

@@ -595,6 +595,53 @@ fn submit_current_building(fixture: &mut Fixture, cell: (u16, u16)) -> CommandEn
     command
 }
 
+/// Test Mode's reveal is the map, not only its drawing: the placement gates
+/// ask the shroud (`MapClass::IsShrouded @ 0x00586360`) while the overlay's own
+/// area never consults it, so a drawing-only reveal refused sites inside the
+/// light green.
+#[test]
+fn test_mode_reveal_maps_the_ground_the_placement_gates_ask_about() {
+    let Some(mut fixture) = stock_base_fixture("Americans", &[("GACNST", 8)], true) else {
+        return;
+    };
+    // The fixture starts fully mapped; unmapped ground is what Test Mode has to
+    // fix, so put the fog back to nothing explored.
+    *fixture.sim.fog_mut_for_test() = crate::sim::vision::FogState::new(32, 32);
+    let preview = |fixture: &Fixture| {
+        production::placement_preview_for_owner_with_overlays(
+            &fixture.sim,
+            &fixture.rules,
+            "Americans",
+            "GAPOWR",
+            12,
+            4,
+            Some(&fixture.overlays),
+        )
+        .expect("the armed type's real preview")
+    };
+    assert!(
+        !preview(&fixture).foundation_visible,
+        "unmapped ground refuses the site"
+    );
+
+    fixture
+        .sim
+        .set_debug_session_context(crate::sim::cheats::DebugSessionContext::Offline);
+    fixture
+        .sim
+        .set_cheat_flags(crate::sim::cheats::CheatFlags {
+            reveal_map: true,
+            ..Default::default()
+        })
+        .expect("an offline match admits the reveal flag");
+    fixture.sim.apply_debug_tools(&fixture.rules);
+
+    assert!(
+        preview(&fixture).foundation_visible,
+        "Test Mode's reveal maps the ground the placement gates ask about"
+    );
+}
+
 fn cancel_envelope(fixture: &Fixture, name: &str) -> CommandEnvelope {
     CommandEnvelope::new(
         fixture.owner,
