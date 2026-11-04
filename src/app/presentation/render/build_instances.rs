@@ -1383,19 +1383,24 @@ fn build_radar_anim_instance(state: &AppState) -> Vec<SpriteInstance> {
     let spec = state.match_state.match_presentation.sidebar_layout_spec;
     let layout = crate::ui::sidebar::compute_layout_with_spec(spec, sw, sh, 0);
 
-    vec![SpriteInstance {
-        position: [
-            state.match_state.input.camera_x + layout.sidebar_x,
-            state.match_state.input.camera_y + layout.radar_y,
+    let mut instances = Vec::new();
+    crate::app::presentation::sidebar_build::push_chrome_full_width(
+        &mut instances,
+        crate::render::sidebar_chrome::SidebarChromeEntry {
+            pixel_size: [ra.width as f32, ra.height as f32],
+            uv_origin: [0.0, 0.0],
+            uv_size: [1.0, 1.0],
+        },
+        layout.sidebar_x,
+        layout.radar_y,
+        spec.sidebar_width,
+        0.00048,
+        [
+            state.match_state.input.camera_x,
+            state.match_state.input.camera_y,
         ],
-        size: [ra.width as f32, ra.height as f32],
-        uv_origin: [0.0, 0.0],
-        uv_size: [1.0, 1.0],
-        depth: 0.00048,
-        tint: [1.0, 1.0, 1.0],
-        alpha: 1.0,
-        ..Default::default()
-    }]
+    );
+    instances
 }
 
 #[cfg(test)]

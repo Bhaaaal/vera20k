@@ -39,6 +39,14 @@ fn spec(side: usize) -> SidebarChromeLayoutSpec {
     )
 }
 fn view(screen: [i32; 2], side: usize, count: usize, scroll: usize) -> SidebarView {
+    view_with_spec(screen, spec(side), count, scroll)
+}
+fn view_with_spec(
+    screen: [i32; 2],
+    spec: SidebarChromeLayoutSpec,
+    count: usize,
+    scroll: usize,
+) -> SidebarView {
     let mut interner = StringInterner::new();
     let options: Vec<_> = (0..count)
         .map(|i| BuildOption {
@@ -52,12 +60,12 @@ fn view(screen: [i32; 2], side: usize, count: usize, scroll: usize) -> SidebarVi
             reason: None,
         })
         .collect();
-    let allied = side == 0;
+    let allied = spec.theme == SidebarTheme::Allied;
     let gadget = gadget_flash::SidebarGadgetState::default();
     let mut cameos = super::cameo_order::CameoStrips::layout_fixture(&options, &[], &[]);
     cameos.set_scroll_row(SidebarTab::Building, scroll);
     build_sidebar_view_with_spec(
-        spec(side),
+        spec,
         screen[0] as f32,
         screen[1] as f32,
         SidebarTab::Building,
@@ -79,6 +87,49 @@ fn view(screen: [i32; 2], side: usize, count: usize, scroll: usize) -> SidebarVi
         [Some([72., 18.]); 2],
         &cameos,
     )
+}
+
+#[test]
+fn modern_view_wraps_after_third_socket_and_moves_header_hit_rects_with_art() {
+    let spec = SidebarChromeLayoutSpec::modern_three_column(SidebarTheme::Allied, true);
+    let modern = view_with_spec([800, 600], spec, 4, 0);
+    let native = view([800, 600], 0, 4, 0);
+    let left = modern.layout.sidebar_x;
+    assert_eq!(
+        modern
+            .items
+            .iter()
+            .map(|item| (item.rect.x - left, item.rect.y))
+            .collect::<Vec<_>>(),
+        [(16.0, 228.0), (80.0, 228.0), (144.0, 228.0), (16.0, 278.0)]
+    );
+    for (modern, native) in [
+        (modern.repair_button.rect, native.repair_button.rect),
+        (modern.sell_button.rect, native.sell_button.rect),
+        (modern.tabs[0].rect, native.tabs[0].rect),
+        (modern.top_buttons[0].rect, native.top_buttons[0].rect),
+        (
+            radar_minimap_rect_with_spec(800.0, spec),
+            radar_minimap_rect(800.0),
+        ),
+    ] {
+        // The panel moves 52 pixels left and its protected artwork moves
+        // 26 right within it; hit rectangles follow that same net shift.
+        assert_eq!(
+            modern,
+            Rect {
+                x: native.x - 26.0,
+                ..native
+            }
+        );
+        assert!(modern.contains(modern.x + modern.w - 1.0, modern.y + modern.h - 1.0));
+        assert!(!modern.contains(modern.x + modern.w, modern.y));
+    }
+    // The scroll buttons keep the same −26 x shift but sit at the fixed
+    // four-row footer, not the native screen-height-driven footer.
+    let scroll = modern.scroll_up_button.rect;
+    assert_eq!(scroll.x, native.scroll_up_button.rect.x - 26.0);
+    assert_eq!(scroll.y, 227.0 + 4.0 * 50.0 + 7.0);
 }
 #[test]
 fn native_21_screen_and_theme_layouts_drive_actual_view() {

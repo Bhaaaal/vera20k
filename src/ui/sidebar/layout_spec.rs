@@ -42,6 +42,9 @@ pub struct SidebarChromeLayoutSpec {
     /// Number of cameo columns in the production grid. Native is 2; the
     /// CNC3-style layout uses 3.
     pub cameo_columns: usize,
+    /// Fixed number of cameo rows; `None` lets the row count follow the screen
+    /// height. The compact modern panel fixes it at 4 (12 slots).
+    pub fixed_rows: Option<usize>,
     pub cameo_width: f32,
     pub cameo_height: f32,
     pub cameo_row_height: f32,
@@ -87,6 +90,7 @@ impl SidebarChromeLayoutSpec {
             cameo_inset_y: 1.0,
             cameo_gap_x: if allied { 3.0 } else { 4.0 },
             cameo_columns: 2,
+            fixed_rows: None,
             cameo_width: 60.0,
             cameo_height: 48.0,
             cameo_row_height: 50.0,
@@ -97,17 +101,23 @@ impl SidebarChromeLayoutSpec {
         }
     }
 
-    /// The CNC3-style widened three-column layout. Keeps the theme's chrome
-    /// heights and button positions; only the column width, cameo grid
-    /// geometry and column count change. The width matches
-    /// [`super::MODERN_SIDEBAR_WIDTH_PX`].
+    /// Three cameo columns with the retail header/footer controls centered.
+    /// Their artwork stays at native scale; only the side rails are extended.
     pub const fn modern_three_column(theme: SidebarTheme, gdi_positions: bool) -> Self {
         let mut spec = Self::for_theme_and_positions(theme, gdi_positions);
         spec.sidebar_width = super::MODERN_SIDEBAR_WIDTH_PX as f32;
         spec.cameo_columns = 3;
+        spec.fixed_rows = Some(4);
         // 3 × 60 (cameo) + 2 × 4 (gap) + 2 × 16 (inset) = 220.
         spec.cameo_inset_x = 16.0;
         spec.cameo_gap_x = 4.0;
+        let shift = (spec.sidebar_width - super::SIDEBAR_WIDTH_PX as f32) / 2.0;
+        spec.radar_x += shift;
+        spec.repair_x += shift;
+        spec.sell_x += shift;
+        spec.top_button_x += shift;
+        spec.tab_x += shift;
+        spec.scroll_x += shift;
         spec
     }
 }
@@ -152,6 +162,7 @@ mod tests {
     fn modern_three_column_fills_the_widened_sidebar() {
         let spec = SidebarChromeLayoutSpec::modern_three_column(SidebarTheme::Allied, true);
         assert_eq!(spec.cameo_columns, 3);
+        assert_eq!(spec.fixed_rows, Some(4));
         assert_eq!(spec.sidebar_width, 220.0);
         // 3 columns + 2 gaps + 2 insets exactly fill the column.
         let grid = spec.cameo_columns as f32 * spec.cameo_width

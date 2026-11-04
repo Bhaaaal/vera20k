@@ -94,7 +94,15 @@ pub fn build_sidebar_chrome_instances_for_layout(
     }
 
     if static_radar_fallback {
-        push_chrome(&mut inst, atlas.radar, cx, layout.radar_y, d, camera_offset);
+        push_chrome_full_width(
+            &mut inst,
+            atlas.radar,
+            cx,
+            layout.radar_y,
+            spec.sidebar_width,
+            d,
+            camera_offset,
+        );
     }
     push_chrome_full_width(
         &mut inst,
@@ -126,15 +134,7 @@ pub fn build_sidebar_chrome_instances_for_layout(
     // loaded canvas height. SIDE3 and ADDON follow the last actual tile.
     for row in 0..layout.side2_tile_count {
         let y = layout.cameo_grid_top + row as f32 * atlas.side2.pixel_size[1];
-        push_chrome_full_width(
-            &mut inst,
-            atlas.side2,
-            cx,
-            y,
-            spec.sidebar_width,
-            d,
-            camera_offset,
-        );
+        push_cameo_row(&mut inst, atlas.side2, cx, y, spec, d, camera_offset);
     }
     push_chrome_full_width(
         &mut inst,
@@ -329,11 +329,11 @@ fn push_chrome_sized(
     });
 }
 
-/// Stage-1 bridge: stretch a full-column chrome strip horizontally to fill the
-/// widened modern sidebar. The retail chrome art is 168 px wide, so the strip
-/// is uniformly scaled to `width`; the visual stage replaces this with proper
-/// wide chrome art (or a 9-slice of the reused art).
-fn push_chrome_full_width(
+/// Keep the retail center and 8-pixel outer rails at 1:1. Extend only the
+/// narrow background seams between them, leaving logos and button sockets
+/// undistorted. SIDE1/3 and RADAR in sidec01/02 MIX share these rail boundaries;
+/// RADARY uses the same canvas. This is a modern presentation choice, not YR geometry.
+pub(crate) fn push_chrome_full_width(
     instances: &mut Vec<SpriteInstance>,
     entry: crate::render::sidebar_chrome::SidebarChromeEntry,
     x: f32,
@@ -342,19 +342,128 @@ fn push_chrome_full_width(
     depth: f32,
     camera_offset: [f32; 2],
 ) {
-    if width <= 0.0 || entry.pixel_size[1] <= 0.0 {
+    let source_width = entry.pixel_size[0];
+    if width <= 0.0 || source_width <= 0.0 || entry.pixel_size[1] <= 0.0 {
         return;
     }
-    instances.push(SpriteInstance {
-        position: [x + camera_offset[0], y + camera_offset[1]],
-        size: [width, entry.pixel_size[1]],
-        uv_origin: entry.uv_origin,
-        uv_size: entry.uv_size,
+    if width <= source_width || source_width <= 16.0 {
+        push_chrome_sized(
+            instances,
+            entry,
+            x,
+            y,
+            [width, entry.pixel_size[1]],
+            depth,
+            camera_offset,
+        );
+        return;
+    }
+    let extra = (width - source_width) / 2.0;
+    for (source_x, source_w, target_x, target_w) in [
+        (0.0, 8.0, 0.0, 8.0),
+        (8.0, 1.0, 8.0, extra),
+        (8.0, source_width - 16.0, 8.0 + extra, source_width - 16.0),
+        (source_width - 9.0, 1.0, source_width - 8.0 + extra, extra),
+        (source_width - 8.0, 8.0, width - 8.0, 8.0),
+    ] {
+        push_chrome_slice(
+            instances,
+            entry,
+            [source_x, source_w],
+            [x + target_x, y, target_w],
+            depth,
+            camera_offset,
+        );
+    }
+}
+
+/// Repeat the first retail SIDE2 socket for each cameo, with the original
+/// power rail on the left and the outer trim on the right. The gap is sampled
+/// separately so its width never scales the 60-pixel socket.
+pub(crate) fn push_cameo_row(
+    instances: &mut Vec<SpriteInstance>,
+    entry: SidebarChromeEntry,
+    x: f32,
+    y: f32,
+    spec: SidebarChromeLayoutSpec,
+    depth: f32,
+    camera_offset: [f32; 2],
+) {
+    if spec.cameo_columns == 2 {
+        push_chrome(instances, entry, x, y, depth, camera_offset);
+        return;
+    }
+    let native = SidebarChromeLayoutSpec::for_theme(spec.theme);
+    let inset = spec.cameo_inset_x;
+    push_chrome_slice(
+        instances,
+        entry,
+        [0.0, inset],
+        [x, y, inset],
         depth,
-        tint: [1.0, 1.0, 1.0],
-        alpha: 1.0,
-        ..Default::default()
-    });
+        camera_offset,
+    );
+    for column in 0..spec.cameo_columns {
+        let left = x + inset + column as f32 * (spec.cameo_width + spec.cameo_gap_x);
+        push_chrome_slice(
+            instances,
+            entry,
+            [native.cameo_inset_x, native.cameo_width],
+            [left, y, spec.cameo_width],
+            depth,
+            camera_offset,
+        );
+        if column + 1 < spec.cameo_columns {
+            push_chrome_slice(
+                instances,
+                entry,
+                [
+                    native.cameo_inset_x + native.cameo_width,
+                    native.cameo_gap_x,
+                ],
+                [left + spec.cameo_width, y, spec.cameo_gap_x],
+                depth,
+                camera_offset,
+            );
+        }
+    }
+    let right = inset
+        + spec.cameo_columns as f32 * spec.cameo_width
+        + (spec.cameo_columns - 1) as f32 * spec.cameo_gap_x;
+    let trim = spec.sidebar_width - right;
+    push_chrome_slice(
+        instances,
+        entry,
+        [entry.pixel_size[0] - trim, trim],
+        [x + right, y, trim],
+        depth,
+        camera_offset,
+    );
+}
+
+fn push_chrome_slice(
+    instances: &mut Vec<SpriteInstance>,
+    entry: SidebarChromeEntry,
+    source: [f32; 2],
+    target: [f32; 3],
+    depth: f32,
+    camera_offset: [f32; 2],
+) {
+    // Batch uses nearest sampling and normalized UVs (WGSL textureSample:
+    // https://www.w3.org/TR/WGSL/#texturesample). Slice at texel boundaries;
+    // keep destination edges integral so neighboring quads leave no seams.
+    let slice = SidebarChromeEntry {
+        uv_origin: [
+            entry.uv_origin[0] + source[0] / entry.pixel_size[0] * entry.uv_size[0],
+            entry.uv_origin[1],
+        ],
+        uv_size: [
+            source[1] / entry.pixel_size[0] * entry.uv_size[0],
+            entry.uv_size[1],
+        ],
+        pixel_size: [target[2], entry.pixel_size[1]],
+    };
+    push_chrome(instances, slice, target[0], target[1], depth, camera_offset);
 }
 
 // ---------------------------------------------------------------------------

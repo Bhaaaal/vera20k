@@ -1688,11 +1688,16 @@ fn set_view_distance(state: &mut AppState, tier: ViewDistanceTier, anchor: [f32;
 }
 
 /// Whether the cursor is over the battlefield rather than the sidebar column
-/// or the bottom command strip, in the frame pixels the cursor uses.
+/// or the bottom command strip, in the frame pixels the cursor uses. The
+/// compact panel is not battlefield: its column is a separate surface.
 pub(crate) fn cursor_over_battlefield(state: &AppState) -> bool {
     let (width, height) = tactical_viewport_size(state);
     let (x, y) = state.cursor_position();
-    x >= 0.0 && y >= 0.0 && x < width as f32 && y < height as f32
+    x >= 0.0
+        && y >= 0.0
+        && x < width as f32
+        && y < height as f32
+        && !state.sidebar_frame().panel_contains(x, y)
 }
 
 /// Animate zoom_level toward zoom_target each frame, adjusting the camera so

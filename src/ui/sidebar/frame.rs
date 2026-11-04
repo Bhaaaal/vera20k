@@ -24,6 +24,12 @@ pub const SIDEBAR_WIDTH_PX: u32 = 168;
 /// three cameo columns out against this width.
 pub const MODERN_SIDEBAR_WIDTH_PX: u32 = 220;
 
+/// The modern panel's fixed height, in sidebar pixels: the top chrome
+/// (`cameo_grid_top` = 227), four 50-pixel cameo rows, and the footer/scroll
+/// strip below them. The panel is top-anchored; the battlefield fills the rest
+/// of the frame, including below the panel.
+pub const MODERN_PANEL_HEIGHT_PX: u32 = 472;
+
 /// Stock YR reserves the right sidebar and a fixed 32-pixel bottom strip, the
 /// command bar's, when it builds the tactical view rectangle. In sidebar
 /// pixels.
@@ -39,6 +45,10 @@ pub struct SidebarFrame {
     /// [`SIDEBAR_WIDTH_PX`]; the modern in-game frame uses
     /// [`MODERN_SIDEBAR_WIDTH_PX`].
     sidebar_width: u32,
+    /// The panel's height in sidebar pixels. `None` is the native full-height
+    /// column; `Some(h)` is the compact top-anchored modern panel, below which
+    /// the battlefield fills the rest of the frame.
+    panel_height: Option<u32>,
 }
 
 impl SidebarFrame {
@@ -47,7 +57,7 @@ impl SidebarFrame {
     }
 
     /// The same frame with an explicit sidebar column width (e.g. the widened
-    /// modern column).
+    /// modern column), still a full-height column.
     pub fn with_sidebar_width(
         frame_width: u32,
         frame_height: u32,
@@ -59,6 +69,19 @@ impl SidebarFrame {
             frame_height,
             percent: percent.max(100),
             sidebar_width: sidebar_width.max(1),
+            panel_height: None,
+        }
+    }
+
+    /// The live in-game frame: the widened column as a compact top-anchored
+    /// panel, with the battlefield filling the rest of the frame.
+    pub fn modern(frame_width: u32, frame_height: u32, percent: u32) -> Self {
+        Self {
+            frame_width,
+            frame_height,
+            percent: percent.max(100),
+            sidebar_width: MODERN_SIDEBAR_WIDTH_PX,
+            panel_height: Some(MODERN_PANEL_HEIGHT_PX),
         }
     }
 
@@ -70,6 +93,31 @@ impl SidebarFrame {
     /// The sidebar column's width in sidebar pixels.
     pub fn sidebar_width(self) -> u32 {
         self.sidebar_width
+    }
+
+    /// Whether the sidebar is a compact top-anchored panel (rather than the
+    /// native full-height column).
+    pub fn is_compact_panel(self) -> bool {
+        self.panel_height.is_some()
+    }
+
+    /// The panel's height in frame pixels: the full frame height for the
+    /// native column, the fixed panel height otherwise.
+    pub fn panel_height_in_frame(self) -> u32 {
+        match self.panel_height {
+            Some(h) => h * self.percent / 100,
+            None => self.frame_height,
+        }
+    }
+
+    /// Whether a frame pixel lies inside the compact panel. Always false for
+    /// the native full-height column (the sidebar surface handles that case).
+    pub fn panel_contains(self, x: f32, y: f32) -> bool {
+        self.is_compact_panel()
+            && x >= self.frame_left()
+            && x < self.frame_width as f32
+            && y >= 0.0
+            && y < self.panel_height_in_frame() as f32
     }
 
     /// Frame pixels per sidebar pixel.
@@ -92,13 +140,19 @@ impl SidebarFrame {
         BOTTOM_STRIP_HEIGHT_PX * self.percent / 100
     }
 
-    /// The battlefield: the frame less the column and the strip. A degenerate
-    /// frame keeps one pixel, so its scissor never drops every tactical draw.
+    /// The battlefield: the frame less the column and the strip. A compact
+    /// panel leaves the full frame width for the battlefield (the panel only
+    /// covers the top-right); the native column reserves its width. A
+    /// degenerate frame keeps one pixel, so its scissor never drops every
+    /// tactical draw.
     pub fn tactical_size(self) -> (u32, u32) {
-        (
+        let width = if self.is_compact_panel() {
             self.frame_width
-                .saturating_sub(self.width_in_frame())
-                .max(1),
+        } else {
+            self.frame_width.saturating_sub(self.width_in_frame())
+        };
+        (
+            width.max(1),
             self.frame_height
                 .saturating_sub(self.strip_height_in_frame())
                 .max(1),
@@ -132,21 +186,24 @@ impl SidebarFrame {
     }
 
     /// The sidebar's surface in its own pixels: the column's width and the
-    /// layout's height.
+    /// layout's height (the fixed panel height for the compact modern panel).
     pub fn surface_size(self) -> (u32, u32) {
-        (self.sidebar_width, self.layout_size().1)
+        (
+            self.sidebar_width,
+            self.panel_height.unwrap_or_else(|| self.layout_size().1),
+        )
     }
 
     /// The bar's surface in its own pixels: the layout's width left of the
-    /// column, and the strip's native height.
+    /// column, and the strip's native height. The compact panel leaves the
+    /// full layout width for the bar.
     pub fn bar_surface_size(self) -> (u32, u32) {
-        (
-            self.layout_size()
-                .0
-                .saturating_sub(self.sidebar_width)
-                .max(1),
-            BOTTOM_STRIP_HEIGHT_PX,
-        )
+        let width = if self.is_compact_panel() {
+            self.layout_size().0
+        } else {
+            self.layout_size().0.saturating_sub(self.sidebar_width)
+        };
+        (width.max(1), BOTTOM_STRIP_HEIGHT_PX)
     }
 
     /// The column's left edge in frame pixels; left of the frame when the
@@ -156,19 +213,25 @@ impl SidebarFrame {
     }
 
     /// The column's part of the frame, in frame pixels: where the sidebar's
-    /// surface is shown.
+    /// surface is shown. A compact panel is top-anchored at its fixed height.
     pub fn column(self) -> (u32, u32, u32, u32) {
         let x = self.frame_width.saturating_sub(self.width_in_frame());
-        (x, 0, self.frame_width - x, self.frame_height)
+        (x, 0, self.frame_width - x, self.panel_height_in_frame())
     }
 
-    /// The strip's part of the frame, left of the column, in frame pixels:
-    /// where the bar's surface is shown.
+    /// The strip's part of the frame, in frame pixels: where the bar's surface
+    /// is shown. The compact panel leaves the full frame width for the bar;
+    /// the native column leaves it left of the column.
     pub fn strip(self) -> (u32, u32, u32, u32) {
         let y = self
             .frame_height
             .saturating_sub(self.strip_height_in_frame());
-        (0, y, self.column().0, self.frame_height - y)
+        let width = if self.is_compact_panel() {
+            self.frame_width
+        } else {
+            self.column().0
+        };
+        (0, y, width, self.frame_height - y)
     }
 
     /// The frame pixel where the bar's surface pixel (0, 0) lands; above the
@@ -355,6 +418,22 @@ mod tests {
         assert_eq!(frame.tactical_size(), (580, 568));
         assert_eq!(frame.surface_size(), (220, 600));
         assert_eq!(frame.bar_surface_size(), (580, 32));
+        assert_eq!(frame.layout_left(), 580.0);
+    }
+
+    #[test]
+    fn modern_compact_panel_is_top_anchored_and_returns_space_to_the_battlefield() {
+        let frame = SidebarFrame::modern(800, 600, 100);
+        assert!(frame.is_compact_panel());
+        assert_eq!(frame.sidebar_width(), 220);
+        assert_eq!(frame.panel_height_in_frame(), 472);
+        // The panel is a top-anchored block; the battlefield is full width.
+        assert_eq!(frame.column(), (580, 0, 220, 472));
+        assert_eq!(frame.strip(), (0, 568, 800, 32));
+        assert_eq!(frame.tactical_size(), (800, 568));
+        assert_eq!(frame.surface_size(), (220, 472));
+        assert_eq!(frame.bar_surface_size(), (800, 32));
+        // The panel's left edge is unchanged.
         assert_eq!(frame.layout_left(), 580.0);
     }
 }

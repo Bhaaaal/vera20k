@@ -84,8 +84,11 @@ pub(crate) struct InGameGadgets {
     /// auto-shrunk; the tail past `view.items.len()` is disabled. Index in this
     /// Vec == cameo slot index == `id - ID_CAMEO_BASE`.
     pub cameos: Vec<GadgetHandle>,
-    /// Full-tactical catcher (A3): invisible sticky region over the play area.
-    pub tactical: Option<GadgetHandle>,
+    /// Full-tactical catcher (A3): invisible sticky regions over the play area.
+    /// The compact panel leaves an L-shaped play area (beside and below the
+    /// panel), so the catcher is two rects — `[top-left, bottom]`. The native
+    /// column uses only the first.
+    pub tactical: Option<[GadgetHandle; 2]>,
     /// Minimap/radar click region (A3): invisible sticky region over the radar
     /// minimap; disabled when the radar is offline / minimap absent.
     pub minimap: Option<GadgetHandle>,
@@ -280,13 +283,12 @@ fn sync_timer_dock(gadgets: &mut InGameGadgets, rect: Option<GadgetRect>) {
     }
 }
 
-/// A3 click regions: build the two invisible sticky catchers once (independent
-/// of the chrome `handles` guard), then sync their rects each frame. List order
-/// ends up chrome → tactical → minimap → cameos; all four groups occupy
-/// DISJOINT rects (play area / radar panel / cameo strip / chrome), so the
-/// relative order is observationally irrelevant — the broadcast walk's
-/// first-consumer-by-rect and the smallest-area hover both resolve to the unique
-/// containing gadget regardless (study tactical/minimap lanes §6/§4).
+/// A3 click regions: build the invisible sticky catchers once (independent of
+/// the chrome `handles` guard), then sync their rects each frame. The compact
+/// panel leaves an L-shaped play area (beside and below the panel), so the
+/// tactical catcher is two rects; the native column uses one. The rects stay
+/// disjoint — the play area never covers the radar panel, cameo strip or
+/// chrome.
 fn sync_regions(state: &mut AppState, _view: &SidebarView) {
     let frame = state.sidebar_frame();
     if state
@@ -297,7 +299,13 @@ fn sync_regions(state: &mut AppState, _view: &SidebarView) {
         .is_none()
     {
         let zero = GadgetRect::new(0, 0, 0, 0);
-        let tac = state
+        let tac_top = state
+            .match_state
+            .match_presentation
+            .in_game_gadgets
+            .list
+            .add_tail(GadgetSpec::click_region(zero, TACTICAL_REGION_FLAGS));
+        let tac_bottom = state
             .match_state
             .match_presentation
             .in_game_gadgets
@@ -313,29 +321,59 @@ fn sync_regions(state: &mut AppState, _view: &SidebarView) {
             .match_state
             .match_presentation
             .in_game_gadgets
-            .tactical = Some(tac);
+            .tactical = Some([tac_top, tac_bottom]);
         state.match_state.match_presentation.in_game_gadgets.minimap = Some(mini);
     }
-    // Tactical catcher rect = the play area left of the sidebar panel (the Rust
-    // equivalent of gamemd's g_RadarViewport*). Always enabled in-game — we have
-    // no in-game map editor (gamemd registers it only when !g_IsMapEditor).
+    // Tactical catcher rects = the play area (the Rust equivalent of gamemd's
+    // g_RadarViewport*). The compact panel splits it beside (top) and below
+    // (bottom) the panel; the native column is one full rect with the bottom
+    // region disabled. Always enabled in-game — no in-game map editor.
     let (tactical_width, tactical_height) =
         crate::app::input::camera::tactical_viewport_size(state);
-    let play_rect = GadgetRect::new(0, 0, tactical_width as i32, tactical_height as i32);
-    if let Some(th) = state
+    let (top_rect, bottom_rect) = if frame.is_compact_panel() {
+        let panel_left = frame.frame_left().max(0.0) as i32;
+        let panel_top = frame.panel_height_in_frame() as i32;
+        (
+            GadgetRect::new(0, 0, panel_left.max(0), panel_top.max(0)),
+            GadgetRect::new(
+                0,
+                panel_top,
+                tactical_width as i32,
+                (tactical_height as i32 - panel_top).max(0),
+            ),
+        )
+    } else {
+        (
+            GadgetRect::new(0, 0, tactical_width as i32, tactical_height as i32),
+            GadgetRect::new(0, 0, 0, 0),
+        )
+    };
+    if let Some([top, bottom]) = state
         .match_state
         .match_presentation
         .in_game_gadgets
         .tactical
-        && let Some(g) = state
+    {
+        if let Some(g) = state
             .match_state
             .match_presentation
             .in_game_gadgets
             .list
-            .get_mut(th)
-    {
-        g.rect = play_rect;
-        g.is_disabled = false;
+            .get_mut(top)
+        {
+            g.rect = top_rect;
+            g.is_disabled = false;
+        }
+        if let Some(g) = state
+            .match_state
+            .match_presentation
+            .in_game_gadgets
+            .list
+            .get_mut(bottom)
+        {
+            g.rect = bottom_rect;
+            g.is_disabled = !frame.is_compact_panel();
+        }
     }
     // Minimap region rect = the live minimap screen rect; disabled when the radar
     // is offline or the minimap is absent (the exact gate `is_cursor_over_minimap`
@@ -548,7 +586,9 @@ fn run_tick(state: &mut AppState, view: &SidebarView, key: u16) -> GadgetConsume
 fn classify(state: &AppState, routed: Option<GadgetHandle>, fired: bool) -> GadgetConsume {
     let g = &state.match_state.match_presentation.in_game_gadgets;
     match routed {
-        Some(h) if Some(h) == g.tactical => GadgetConsume::Tactical,
+        Some(h) if g.tactical.is_some_and(|pair| h == pair[0] || h == pair[1]) => {
+            GadgetConsume::Tactical
+        }
         Some(h) if Some(h) == g.minimap => GadgetConsume::Minimap,
         Some(_) => GadgetConsume::Consumed,
         None => {

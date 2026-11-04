@@ -296,8 +296,12 @@ pub(crate) fn compute_layout_with_spec(
     _item_rows: usize,
 ) -> SidebarLayout {
     // Original 6A5090/6A5130: capacity depends on screen height and side,
-    // never on build-item count. Integer division truncates toward zero.
-    let rows = ((screen_h as i32 - 227 - spec.footer_allowance - 7) / 50).max(0) as usize;
+    // never on build-item count. Integer division truncates toward zero. The
+    // compact modern panel overrides it with a fixed row count.
+    let rows = match spec.fixed_rows {
+        Some(rows) => rows,
+        None => ((screen_h as i32 - 227 - spec.footer_allowance - 7) / 50).max(0) as usize,
+    };
     SidebarLayout {
         sidebar_x: screen_w - spec.sidebar_width,
         radar_y: spec.top_inset,

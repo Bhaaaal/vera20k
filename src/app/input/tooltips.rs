@@ -495,11 +495,34 @@ fn sync_in_game_regions(state: &mut AppState) {
     // dynamic region500. CursorCheat537EF0 toggles its coordinate text at
     // 4AE580, before the ordinary object/shroud tooltip lookup.
     let (x, y, width, height) = crate::app::input::camera::tactical_viewport_px(state);
-    regions.push(TipRegion {
-        id: 500,
-        rect: TipRect::new(x as i32, y as i32, width as i32, height as i32),
-        text: dynamic_tip_text(cursor, || tactical_tip_text(state)),
-    });
+    let tactical_text = dynamic_tip_text(cursor, || tactical_tip_text(state));
+    if frame.is_compact_panel() {
+        // The compact panel leaves an L-shaped play area; the tactical tip must
+        // not cover the panel or it shadows the cameo/button/minimap tips.
+        let panel_left = frame.frame_left() as i32;
+        let panel_top = frame.panel_height_in_frame() as i32;
+        regions.push(TipRegion {
+            id: 500,
+            rect: TipRect::new(x as i32, y as i32, panel_left.max(0), panel_top.max(0)),
+            text: tactical_text.clone(),
+        });
+        regions.push(TipRegion {
+            id: 501,
+            rect: TipRect::new(
+                x as i32,
+                y as i32 + panel_top,
+                width as i32,
+                (height as i32 - panel_top).max(0),
+            ),
+            text: tactical_text,
+        });
+    } else {
+        regions.push(TipRegion {
+            id: 500,
+            rect: TipRect::new(x as i32, y as i32, width as i32, height as i32),
+            text: tactical_text,
+        });
+    }
     // Power meter first: gamemd asks the power bar for a tip before the
     // sidebar gadget ids, and registration order decides the hit here.
     // Gadget idle republishes these retained House values each unlocked pump.

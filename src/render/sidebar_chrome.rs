@@ -47,6 +47,40 @@ pub(crate) fn packed_command_bar_fixture(
 }
 
 const CHROME_PADDING: u32 = 2;
+
+#[cfg(test)]
+pub(crate) fn retail_chrome_piece_fixture(
+    assets: &AssetManager,
+    theme: SidebarTheme,
+    name: &str,
+    frame: usize,
+) -> (SidebarChromeEntry, Vec<u8>, [u32; 2]) {
+    let route = SidebarSideRoute::for_theme(assets, theme);
+    let piece = if name == "radar" {
+        let archive = match theme {
+            SidebarTheme::Allied => "sidec01.mix",
+            SidebarTheme::Soviet => "sidec02.mix",
+            SidebarTheme::Yuri => "sidec02md.mix",
+        };
+        let names = SidebarArtNames::for_yuri(theme == SidebarTheme::Yuri);
+        let mix = assets.archive(archive).unwrap();
+        let (palette, _) =
+            resolve_theme_palette_with_source(assets, mix, archive, names.radar_palette).unwrap();
+        render_entry(assets, mix, names.radar, &palette, frame).unwrap()
+    } else {
+        let palette = decode_sidebar_palette(route.resolve("SIDEBAR.PAL").unwrap().bytes).unwrap();
+        render_side_entry(route, name, &palette, frame).unwrap()
+    };
+    // Nonzero UV origin and padding exercise slices of a packed atlas, not
+    // just stand-alone full-texture sprites.
+    let size = [
+        piece.width + CHROME_PADDING,
+        piece.height + 2 * CHROME_PADDING,
+    ];
+    let mut rgba = vec![0; (size[0] * size[1] * 4) as usize];
+    let entry = blit_entry(&mut rgba, size[0], size[1], CHROME_PADDING, &piece);
+    (entry, rgba, size)
+}
 /// R-UP.SHP / R-DN.SHP frame count. The strip-scroll art uses a 3-frame
 /// convention (0 = idle, 1 = pressed, 2 = disabled) — NOT the 5-frame tab /
 /// repair / sell convention.

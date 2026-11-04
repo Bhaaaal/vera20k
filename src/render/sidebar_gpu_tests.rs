@@ -233,6 +233,95 @@ fn quad(position: [f32; 2], size: [f32; 2]) -> SpriteInstance {
         ..Default::default()
     }
 }
+
+#[test]
+#[ignore = "requires original retail archives and a real wgpu adapter"]
+fn modern_sidebar_reuses_retail_pixels_without_stretching_controls_or_slots() {
+    use crate::app::presentation::sidebar_build::{push_cameo_row, push_chrome_full_width};
+    use crate::ui::sidebar::{SidebarChromeLayoutSpec, SidebarTheme};
+    let root = crate::util::config::GameConfig::load()
+        .unwrap()
+        .paths
+        .ra2_dir;
+    let assets = crate::assets::asset_manager::AssetManager::new(
+        &root,
+        crate::assets::asset_manager::MediaArchiveMode::STOCK_DIGITAL,
+    )
+    .unwrap();
+    let gpu = Gpu::new();
+    for theme in [
+        SidebarTheme::Allied,
+        SidebarTheme::Soviet,
+        SidebarTheme::Yuri,
+    ] {
+        let spec =
+            SidebarChromeLayoutSpec::modern_three_column(theme, theme == SidebarTheme::Allied);
+        let mut native = Vec::new();
+        let mut modern = Vec::new();
+        for (name, frame, y) in [
+            ("credits.shp", 0, 0.0),
+            ("top.shp", 0, 16.0),
+            ("radar", 0, 48.0),
+            ("side1.shp", 0, 158.0),
+            ("side2.shp", 0, 227.0),
+            ("side3.shp", 0, 277.0),
+            ("addon.shp", 0, 303.0),
+            ("radar", 32, 366.0),
+        ] {
+            let (entry, rgba, size) =
+                super::sidebar_chrome::retail_chrome_piece_fixture(&assets, theme, name, frame);
+            let mut original = Vec::new();
+            push_chrome_full_width(&mut original, entry, 0.0, y, 168.0, 0.0, [0.0; 2]);
+            native.extend(original.into_iter().map(|quad| Layer {
+                quad,
+                rgba: rgba.clone(),
+                size,
+            }));
+            let mut widened = Vec::new();
+            if name == "side2.shp" {
+                push_cameo_row(&mut widened, entry, 0.0, y, spec, 0.0, [0.0; 2]);
+            } else {
+                push_chrome_full_width(&mut widened, entry, 0.0, y, 220.0, 0.0, [0.0; 2]);
+            }
+            modern.extend(widened.into_iter().map(|quad| Layer {
+                quad,
+                rgba: rgba.clone(),
+                size,
+            }));
+        }
+        let original = gpu.render(&native, [168, 476], [0.0; 2]);
+        let widened = gpu.render(&modern, [220, 476], [0.0; 2]);
+        // Compare every protected source pixel, including the online radar
+        // endpoint, against the same retail artwork drawn at native size.
+        for y in 0..476usize {
+            let spans = if (227..277).contains(&y) {
+                vec![(22, 16, 60), (22, 80, 60), (22, 144, 60)]
+            } else {
+                vec![(0, 0, 8), (8, 34, 152), (160, 212, 8)]
+            };
+            for (source, target, width) in spans {
+                let a = (y * 168 + source) * 4;
+                let b = (y * 220 + target) * 4;
+                assert_eq!(
+                    &original[a..a + width * 4],
+                    &widened[b..b + width * 4],
+                    "{theme:?} y={y} x={target}"
+                );
+            }
+        }
+        if let Some(dir) = std::env::var_os("VERA20K_SIDEBAR_PREVIEW_DIR") {
+            std::fs::create_dir_all(&dir).unwrap();
+            image::save_buffer(
+                std::path::Path::new(&dir).join(format!("{theme:?}.png")),
+                &widened,
+                220,
+                476,
+                image::ColorType::Rgba8,
+            )
+            .unwrap();
+        }
+    }
+}
 #[test]
 #[ignore = "requires a wgpu adapter; executes the production batch shader"]
 fn retained_radar_snapshot_matches_actual_gpu_crops_and_overlaps() {

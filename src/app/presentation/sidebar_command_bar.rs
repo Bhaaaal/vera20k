@@ -11,9 +11,17 @@ pub(crate) fn layout_and_slots(state: &AppState) -> Option<(CommandBarLayout, Ve
     let art = &current_sidebar_chrome(state)?.command_bar;
     let size = |entry: SidebarChromeEntry| entry.pixel_size.map(|v| v as u32);
     let (width, height) = state.sidebar_frame().layout_size();
+    // The compact panel leaves the full strip width for the bar; the native
+    // column leaves the strip left of the column.
+    let frame = state.sidebar_frame();
+    let reserved = if frame.is_compact_panel() {
+        0
+    } else {
+        frame.sidebar_width()
+    };
     let layout = CommandBarLayout::new(
         [width, height],
-        state.sidebar_frame().sidebar_width(),
+        reserved,
         size(art.left_cap[0]?),
         size(art.background?),
         size(art.right_cap?),
