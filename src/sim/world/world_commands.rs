@@ -2011,8 +2011,8 @@ impl Simulation {
                 entity_id,
                 target,
                 destination,
-            } => self
-                .apply_megamission_command(
+            } => {
+                let execution = self.apply_megamission_command(
                     *entity_id,
                     MissionType::AttackMove,
                     *target,
@@ -2021,8 +2021,21 @@ impl Simulation {
                     rules,
                     overlay_registry,
                     frame_effects,
-                )
-                .accepted(),
+                );
+                // The client already logs that a click queued an attack order;
+                // this records what the simulation made of it, so a report of
+                // "attack move did nothing" names the gate.
+                log::info!(
+                    "AttackMove order: entity={} target={target:?} destination={destination:?} \
+                     execution={execution:?} mission={:?}",
+                    entity_id,
+                    self.substrate
+                        .entities
+                        .get(*entity_id)
+                        .map(|entity| entity.mission.current().known()),
+                );
+                execution.accepted()
+            }
             Command::Guard { entity_id, target } => self
                 .apply_megamission_command(
                     *entity_id,

@@ -111,6 +111,18 @@ impl TerrainObjectType {
         )
     }
 
+    /// VERA's build-over rule for the placement site: the plain tree family
+    /// (retail `TREE01..TREE36`), never the tiberium tree (`SpawnsTiberium=`,
+    /// `TIBTRE01..03`) or a veinhole tree. Retail names this family only by its
+    /// section id; the game holds no per-type "removable" key to read instead,
+    /// so the id prefix and the two resource flags are the whole test.
+    pub fn is_plain_tree(&self) -> bool {
+        self.name.len() > 4
+            && self.name[..4].eq_ignore_ascii_case("TREE")
+            && !self.spawns_tiberium
+            && !self.is_veinhole
+    }
+
     pub fn from_ini_section_with_tree_strength(
         name: &str,
         section: &IniSection,

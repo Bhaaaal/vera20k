@@ -10,3 +10,6 @@ pub(crate) mod tactical_capture;
 /// Test-mode HUD: a window-fixed readout in the match screen's bottom-left.
 #[cfg(feature = "dev-overlays")]
 pub(crate) mod test_hud;
+/// Test-mode record of a refused placement: area, footprint and gates.
+#[cfg(feature = "dev-overlays")]
+pub(crate) mod placement_dump;

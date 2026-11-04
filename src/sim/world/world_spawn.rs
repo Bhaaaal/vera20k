@@ -1558,6 +1558,27 @@ impl Simulation {
             return None;
         }
 
+        // VERA's site rule: admission passed, so this commit owns the ground.
+        // A plain tree standing on the foundation is cleared here — never on a
+        // refused attempt — and `Is_Clear_To_Build` already let it pass for a
+        // Building (`build_site::objects_admit`).
+        if let Some(foundation) = self
+            .substrate
+            .entities
+            .get(stable_id)
+            .and_then(|entity| self.object_type(entity.type_ref(), rules))
+            .map(|object| object.foundation.clone())
+        {
+            crate::sim::build_site::clear_placement_trees(
+                self,
+                rules,
+                &foundation,
+                (
+                    requested_position.rx() as i16,
+                    requested_position.ry() as i16,
+                ),
+            );
+        }
         let outcome = self.try_reveal_entity_with_context(
             stable_id,
             RevealRequest {

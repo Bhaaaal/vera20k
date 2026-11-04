@@ -281,6 +281,42 @@ pub(super) fn dispatch_draw_passes(
         "smudge",
     );
 
+    // The base build area lies on the ground: ground the armed placement can use
+    // (light green) and ground it cannot (grey), drawn after the terrain and its
+    // smudges but before every overlay body, building, unit, tree and effect, so
+    // nothing already standing is tinted. Water and unmapped ground are omitted
+    // by `sim::production::build_area_cells`.
+    if let (Some(overlay), Some((buffer, count))) = (
+        state
+            .match_state
+            .match_presentation
+            .selection_overlay
+            .as_ref(),
+        pool.get("build_area_blocked"),
+    ) {
+        state.renderer.batch_renderer.draw_with_buffer_passthrough(
+            &mut pass,
+            overlay.diamond_filled_texture(),
+            buffer,
+            count,
+        );
+    }
+    if let (Some(overlay), Some((buffer, count))) = (
+        state
+            .match_state
+            .match_presentation
+            .selection_overlay
+            .as_ref(),
+        pool.get("build_area_allowed"),
+    ) {
+        state.renderer.batch_renderer.draw_with_buffer_passthrough(
+            &mut pass,
+            overlay.diamond_filled_texture(),
+            buffer,
+            count,
+        );
+    }
+
     // --- Step 2: The cell body sweep (SHP depth read + write) ---
     // High bridges, walls and ordinary overlays are 0x4E00 CC_Draw_Shape
     // draws at 0x0047F6A0, reached through one 0x006D6D10 sweep. They are not
@@ -792,9 +828,6 @@ pub(super) fn dispatch_draw_passes(
         pass = begin_main_load_pass(encoder, view, &world_depth);
         pass.set_scissor_rect(tac_x, tac_y, tac_w, tac_h);
     }
-    // Cell47EC90 flags20600 -> plain Convert/RLE4960A0: opaque stores,
-    // world camera, neither A nor Z reads/writes. The shared neutral-A surface
-    // binding and passthrough pipeline implement that material directly.
     if let (Some(shape), Some((buffer, count))) = (
         state
             .match_state

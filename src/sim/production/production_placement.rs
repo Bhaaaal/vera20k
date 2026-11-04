@@ -405,6 +405,23 @@ pub(crate) fn place_production_with_overlays(
     else {
         return false;
     };
+    // VERA's site maintenance before Unlimbo's own admission: the placer's
+    // non-hostile units are told to leave (`Flush_For_Placement`). Units still
+    // standing in the foundation refuse this attempt — the ready object is
+    // retained — so the player places again once they have moved out, instead of
+    // the building landing on top of them. The plain trees under the site are
+    // cleared by the commit itself, never by a refused attempt.
+    if is_within_build_area(sim, rules, owner, obj, rx, ry) {
+        let _ = crate::sim::build_site::flush_for_placement(
+            sim,
+            rules,
+            overlay_registry,
+            obj,
+            (rx as i16, ry as i16),
+            owner_id,
+            effects,
+        );
+    }
     // Original PLACE4FB1DA keeps Object::FindFactory(0,0)'s yard through
     // HELLO, Unlimbo (including the wall arm), the child's C message and the
     // yard's FirstContact BREAK. The House factory owns the completed object.
@@ -771,8 +788,16 @@ fn evaluate_resolved_building_placement(
     }
 }
 
-/// Read-only Display4A8EB0 proximity query, shared by preview and the fresh
-/// LeftUp event gate. Production owns provider lifecycle and adjacency policy.
+/// The one build-area predicate, shared by the cursor preview, the fresh LeftUp
+/// event gate and the executing PLACE.
+///
+/// VERA's own model (deliberate difference from gamemd): every base provider
+/// lends `BuildRadius=` cells around its own footprint, and the candidate's
+/// **whole footprint** must lie inside the union of those reaches, grown by its
+/// own `PlaceExtraRange=`. gamemd instead read the candidate's `Adjacent=` and
+/// asked only that the candidate's rectangle touch one provider's ring
+/// (`IsWithinBuildArea @ 0x004A8EB0`); that key is now legacy for placement, and
+/// `production_placement_tests` pins this model's boundaries instead.
 pub fn is_within_build_area(
     sim: &Simulation,
     rules: &RuleSet,
@@ -789,76 +814,202 @@ pub fn is_within_build_area(
     {
         return true;
     }
-    let (width, height) = obj.foundation.dimensions();
-    let placed_adjacent = obj.adjacent;
-    if placed_adjacent < 0 {
-        return false;
-    }
-    for e in sim.substrate.entities.values() {
-        // A dying structure provides no build-area adjacency during its window.
-        if e.death.is_dying() || e.lifecycle.in_limbo() {
-            continue;
-        }
-        if e.category() != EntityCategory::Structure {
-            continue;
-        }
-        if !e.unit_delivery_provides_base_space() {
-            continue;
-        }
-        let provider_owner = sim.interner.resolve(e.owner());
-        let Some(existing) = sim.entity_object_type(e, rules) else {
-            continue;
-        };
-        if provider_owner.eq_ignore_ascii_case(owner) {
-            if !existing.base_normal {
-                continue;
-            }
-        } else if !(sim.session.game_options().build_off_ally
-            && existing.eligibile_for_ally_building
-            // The provider's house asks about the placer's (`0x004A900E`).
-            && is_allied_with(sim.house_alliances.as_map(), provider_owner, owner))
-        {
-            continue;
-        }
-        //4A8F21..4A8FB9 uses declared dimensions for the placed ring;
-        //4A8FC5/4A8FCC queries the first actual ground Building47C520 in
-        //each ring cell. A provider's bounding rectangle fills Custom holes
-        //incorrectly. This order-free existential walk changes no RNG/state.
-        if crate::sim::occupancy::entity_occupancy_cells(e)
-            .into_iter()
-            .any(|cell| {
-                cell_in_build_area_ring((rx, ry, width, height), cell, placed_adjacent)
-                    && sim.substrate.occupancy.first_building_on_layer(
-                        cell.0,
-                        cell.1,
-                        MovementLayer::Ground,
-                    ) == Some(e.stable_id())
-            })
-        {
-            return true;
-        }
-    }
-    false
+    obj.foundation.cell_offsets().into_iter().all(|(dx, dy)| {
+        let cell = (i32::from(rx) + i32::from(dx), i32::from(ry) + i32::from(dy));
+        cell_in_provider_reach(sim, rules, owner, cell, obj.place_extra_range)
+    })
 }
 
-fn cell_in_build_area_ring(
-    placed: (u16, u16, u16, u16),
-    provider_cell: (u16, u16),
-    adjacent: i32,
+/// Whether `cell` lies within some base provider's `BuildRadius`, each grown by
+/// the candidate's `PlaceExtraRange`. Per cell rather than per footprint, so a
+/// site may straddle two providers' reaches as long as every foundation cell is
+/// covered by the union.
+fn cell_in_provider_reach(
+    sim: &Simulation,
+    rules: &RuleSet,
+    owner: &str,
+    cell: (i32, i32),
+    extra: i32,
 ) -> bool {
-    let (placed_rx, placed_ry, placed_width, placed_height) = placed;
-    let expansion = adjacent.saturating_add(1);
-    let placed_min_x = i32::from(placed_rx);
-    let placed_min_y = i32::from(placed_ry);
-    let placed_max_x = i32::from(placed_rx) + i32::from(placed_width) - 1;
-    let placed_max_y = i32::from(placed_ry) + i32::from(placed_height) - 1;
-    let min_x = placed_min_x - expansion;
-    let min_y = placed_min_y - expansion;
-    let max_x = placed_max_x + expansion;
-    let max_y = placed_max_y + expansion;
-    let (x, y) = (i32::from(provider_cell.0), i32::from(provider_cell.1));
-    (min_x..=max_x).contains(&x)
-        && (min_y..=max_y).contains(&y)
-        && !((placed_min_x..=placed_max_x).contains(&x)
-            && (placed_min_y..=placed_max_y).contains(&y))
+    sim.substrate.entities.values().any(|entity| {
+        let Some(radius) = base_provider_radius(sim, rules, owner, entity) else {
+            return false;
+        };
+        let reach = radius.saturating_add(extra);
+        crate::sim::occupancy::entity_occupancy_cells(entity)
+            .into_iter()
+            .any(|(px, py)| {
+                (cell.0 - i32::from(px)).abs() <= reach && (cell.1 - i32::from(py)).abs() <= reach
+            })
+    })
+}
+
+/// The base-provider filter and the radius it lends in one answer: a live
+/// Structure that provides base space, owned by the placer (`BaseNormal=`) or
+/// lent to it by `BuildOffAlly` (`EligibileForAllyBuilding=`; the provider's
+/// house asks about the placer's, `0x004A900E`). A dying structure provides no
+/// build area during its window.
+fn base_provider_radius(
+    sim: &Simulation,
+    rules: &RuleSet,
+    owner: &str,
+    entity: &crate::sim::game_entity::GameEntity,
+) -> Option<i32> {
+    if entity.death.is_dying() || entity.lifecycle.in_limbo() {
+        return None;
+    }
+    if entity.category() != EntityCategory::Structure {
+        return None;
+    }
+    if !entity.unit_delivery_provides_base_space() {
+        return None;
+    }
+    let provider_owner = sim.interner.resolve(entity.owner());
+    let existing = sim.entity_object_type(entity, rules)?;
+    let provides = if provider_owner.eq_ignore_ascii_case(owner) {
+        existing.base_normal
+    } else {
+        sim.session.game_options().build_off_ally
+            && existing.eligibile_for_ally_building
+            && is_allied_with(sim.house_alliances.as_map(), provider_owner, owner)
+    };
+    provides.then_some(existing.build_radius)
+}
+
+/// The base build area the placement overlay paints while `obj` is armed.
+///
+/// `allowed` is the ground the placement can use (light green): inside some
+/// provider's `BuildRadius`, the type's own ground test admits it, and no
+/// structure or terrain object stands there. `blocked` is the rest of the area
+/// (grey): a slope, bridge, overlay it cannot share, off-playfield cell, or an
+/// existing structure. Water is neither — a base next to the sea must not turn
+/// the sea grey.
+///
+/// Read-only, and never a placement decision: the click asks
+/// [`is_within_build_area`] and the foundation's own admission.
+pub struct BuildAreaCells {
+    pub allowed: Vec<BuildingPlacementCell>,
+    pub blocked: Vec<BuildingPlacementCell>,
+}
+
+pub fn build_area_cells(
+    sim: &Simulation,
+    rules: &RuleSet,
+    owner: &str,
+    obj: &ObjectType,
+    overlay_registry: Option<&OverlayTypeRegistry>,
+) -> BuildAreaCells {
+    let mut area = BuildAreaCells {
+        allowed: Vec::new(),
+        blocked: Vec::new(),
+    };
+    let Some(terrain) = sim.resolved_terrain.as_ref() else {
+        return area;
+    };
+    let cells = crate::map::resolved_terrain::NativeCellQuery::isolated(terrain);
+    let owner_id = sim.interner.get(owner);
+    let speed = crate::sim::build_site::building_speed_type(obj);
+    // An upgrade stands on its own host building and bypasses the area
+    // entirely, so its extent is the host cells that admission accepts.
+    if obj.building_upgrade().host().is_some() {
+        let Some(owner_id) = owner_id else {
+            return area;
+        };
+        for entity in sim.substrate.entities.values() {
+            if entity.death.is_dying()
+                || entity.lifecycle.in_limbo()
+                || entity.category() != EntityCategory::Structure
+                || !sim
+                    .interner
+                    .resolve(entity.owner())
+                    .eq_ignore_ascii_case(owner)
+                || !sim.can_install_building_upgrade(entity.stable_id(), obj, owner_id, rules)
+            {
+                continue;
+            }
+            area.allowed.extend(
+                crate::sim::occupancy::entity_occupancy_cells(entity)
+                    .into_iter()
+                    .map(|coord| build_area_cell(&cells, coord, true)),
+            );
+        }
+        return area;
+    }
+    let map_w = i32::from(terrain.width());
+    let map_h = i32::from(terrain.height());
+    let mut in_area = vec![false; usize::try_from(map_w * map_h).unwrap_or(0)];
+    for entity in sim.substrate.entities.values() {
+        let Some(radius) = base_provider_radius(sim, rules, owner, entity) else {
+            continue;
+        };
+        let reach = radius.saturating_add(obj.place_extra_range);
+        for (rx, ry) in crate::sim::occupancy::entity_occupancy_cells(entity) {
+            let (cx, cy) = (i32::from(rx), i32::from(ry));
+            for y in (cy - reach).max(0)..=(cy + reach).min(map_h - 1) {
+                for x in (cx - reach).max(0)..=(cx + reach).min(map_w - 1) {
+                    in_area[(y * map_w + x) as usize] = true;
+                }
+            }
+        }
+    }
+    for y in 0..map_h {
+        for x in 0..map_w {
+            if !in_area[(y * map_w + x) as usize] {
+                continue;
+            }
+            let coord = (x as u16, y as u16);
+            // Ground the local player has not mapped is not offered: the click
+            // gates refuse it (`MapClass::IsShrouded @ 0x00586360`), so painting
+            // it green would promise a site that cannot be used.
+            if sim.session.current_house().is_some_and(|viewer| {
+                crate::sim::vision::cell_is_shrouded(&sim.fog, &cells, viewer, coord)
+            }) {
+                continue;
+            }
+            let identity = cells.lookup((x as i16, y as i16));
+            let ground = crate::sim::build_site::ground_admission(
+                sim,
+                rules,
+                overlay_registry,
+                identity,
+                speed,
+                Some(obj),
+                owner_id,
+                &cells,
+            );
+            if ground == crate::sim::build_site::GroundAdmission::Water {
+                continue;
+            }
+            let held = crate::sim::build_site::cell_holds_structure(sim, rules, &cells, identity);
+            let allowed = ground == crate::sim::build_site::GroundAdmission::Allowed && !held;
+            if allowed {
+                area.allowed.push(build_area_cell(&cells, coord, true));
+            } else {
+                area.blocked.push(build_area_cell(&cells, coord, false));
+            }
+        }
+    }
+    area
+}
+
+#[cfg(any(test, feature = "test-support", feature = "debug-tools"))]
+#[path = "production_placement_report.rs"]
+mod placement_report;
+#[cfg(any(test, feature = "test-support", feature = "debug-tools"))]
+pub use self::placement_report::build_area_report;
+
+/// One display cell: its coordinate with the current Cell ground fields the
+/// PLACE cells read (`Cell47EC90`), and whether the area admits it.
+fn build_area_cell(
+    cells: &crate::map::resolved_terrain::NativeCellQuery<'_>,
+    coord: (u16, u16),
+    valid: bool,
+) -> BuildingPlacementCell {
+    let (level, slope) = cells.ground_fields(cells.lookup((coord.0 as i16, coord.1 as i16)));
+    BuildingPlacementCell {
+        coord,
+        valid,
+        level: level as i8,
+        slope,
+    }
 }

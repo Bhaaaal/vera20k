@@ -911,6 +911,16 @@ fn upload_to_gpu(
     pool.upload(&state.renderer.gpu, "drag", &ui.drag);
     pool.upload(&state.renderer.gpu, "software_cursor", &ui.software_cursor);
     pool.upload(&state.renderer.gpu, "placement", &ui.placement);
+    pool.upload(
+        &state.renderer.gpu,
+        "build_area_allowed",
+        &ui.build_area_allowed,
+    );
+    pool.upload(
+        &state.renderer.gpu,
+        "build_area_blocked",
+        &ui.build_area_blocked,
+    );
     #[cfg(feature = "phobos")]
     pool.upload(&state.renderer.gpu, "placement_ghost", &ui.placement_ghost);
     pool.upload(

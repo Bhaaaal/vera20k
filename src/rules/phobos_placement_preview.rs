@@ -64,9 +64,12 @@ pub struct PlacementPreviewGlobals {
 impl Default for PlacementPreviewGlobals {
     fn default() -> Self {
         // RulesExt constructor: PlacementPreview false, its translucency 75,
-        // the grid 0, and the with-preview override unset.
+        // the grid 0, and the with-preview override unset. VERA's own default
+        // turns the preview on: this module only compiles behind
+        // `--features phobos`, a build that exists to offer it. A rules layer
+        // still wins with `PlacementPreview=no`.
         Self {
-            enabled: false,
+            enabled: true,
             translucency: Translucency::T75,
             grid_translucency: Translucency::OPAQUE,
             grid_translucency_with_preview: None,
@@ -89,7 +92,10 @@ impl PlacementPreviewGlobals {
     pub(crate) fn from_ini(ini: &IniFile) -> Self {
         let section = ini.section_or_empty("AudioVisual");
         Self {
-            enabled: section.read_bool("PlacementPreview", false),
+            // Phobos reads `PlacementPreview` with a false default; VERA's
+            // phobos build defaults it on (`docs/phobos-placement-preview.md`
+            // records the difference). `PlacementPreview=no` still turns it off.
+            enabled: section.read_bool("PlacementPreview", true),
             translucency: Translucency::from_int(
                 section.read_int("PlacementPreview.Translucency", 75),
             ),
@@ -150,6 +156,20 @@ mod tests {
             custom.placement_preview_translucency(),
             Some(Translucency::T50)
         );
+    }
+
+    /// VERA's phobos build offers the preview without any data edit; a rules
+    /// layer that says no still wins.
+    #[test]
+    fn the_rules_global_defaults_on_and_a_rules_layer_can_turn_it_off() {
+        let absent = PlacementPreviewGlobals::from_ini(&IniFile::from_str("[General]\n"));
+        assert!(absent.enabled, "the phobos build defaults the preview on");
+        assert_eq!(absent.translucency, Translucency::T75);
+
+        let refused = PlacementPreviewGlobals::from_ini(&IniFile::from_str(
+            "[AudioVisual]\nPlacementPreview=no\n",
+        ));
+        assert!(!refused.enabled, "a rules layer still turns it off");
     }
 
     #[test]

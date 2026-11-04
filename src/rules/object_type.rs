@@ -785,7 +785,30 @@ pub struct ObjectType {
     /// Sidebar/build tab grouping for structures.
     pub build_cat: Option<BuildCategory>,
     /// Human placement radius away from existing base-normal structures.
+    ///
+    /// VERA's own build-area model makes this key legacy for placement: a
+    /// provider lends `BuildRadius` cells and a candidate may overhang the
+    /// union by `PlaceExtraRange` (see [`ObjectType::build_radius`] and
+    /// [`ObjectType::place_extra_range`]). gamemd instead read this value from
+    /// the *candidate* (`IsWithinBuildArea @ 0x004A8EB0`) and demanded only
+    /// that the candidate's rectangle touch the ring — a deliberate difference
+    /// recorded on `production_placement`.
     pub adjacent: i32,
+    /// Cells this structure lends to its owner's build area beyond its own
+    /// footprint (VERA key, `BuildRadius=`). Absent means 8.
+    ///
+    /// The reach is measured from the provider's footprint, but VERA demands
+    /// the candidate's *whole* footprint inside it, so a candidate spends its
+    /// own span of the budget: the gap a type may leave is
+    /// `BuildRadius - its span` on each axis. Eight leaves four cells for a
+    /// 4-wide building — a road's width — and still covers the retail layout
+    /// whose 4x3 refinery sits two cells from its yard.
+    pub build_radius: i32,
+    /// Cells this candidate may overhang the base build area with its whole
+    /// footprint (VERA key, `PlaceExtraRange=`). Absent means
+    /// `max(0, Adjacent - 2)`, which keeps the reach gamemd gave the naval
+    /// yard (12), walls (8) and base defences (4) without editing retail data.
+    pub place_extra_range: i32,
     /// `ProtectWithWall=` (`BuildingTypeClass+0x1765`, ReadINI
     /// `0x0046026B..0x0046027F`) adds one cell to the active AI site's
     /// first-phase CheckOccupancy border, and marks a building the computer
@@ -3731,6 +3754,15 @@ impl ObjectType {
             };
         // `IsGattling=` gates the Stage loop read beside it (`0x0071407E`).
         let is_gattling = section.read_bool("IsGattling", false);
+        // VERA's build-area keys share `Adjacent=`'s value: `BuildRadius=`
+        // defaults to the classic four cells, `PlaceExtraRange=` keeps what
+        // gamemd reached for the naval yard (12), walls (8) and base defences
+        // (4) by taking `Adjacent - 2`.
+        let adjacent = section.read_int("Adjacent", 3);
+        let build_radius = section.read_int("BuildRadius", 8).max(0);
+        let place_extra_range = section
+            .read_int("PlaceExtraRange", adjacent.saturating_sub(2).max(0))
+            .max(0);
         // The targeting coefficients (`0x0071556B..0x0071570C`) read with a
         // `[General]` default resolved where the value is used; `None` marks
         // an absent key.
@@ -4117,7 +4149,9 @@ impl ObjectType {
             build_cat: section
                 .read_name("BuildCat", 0x20)
                 .and_then(BuildCategory::from_ini),
-            adjacent: section.read_int("Adjacent", 3),
+            adjacent,
+            build_radius,
+            place_extra_range,
             protect_with_wall: section.read_bool("ProtectWithWall", false),
             wants_extra_space: section.read_bool("WantsExtraSpace", false),
             base_normal: section.read_bool("BaseNormal", true),

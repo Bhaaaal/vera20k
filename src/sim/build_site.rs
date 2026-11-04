@@ -23,6 +23,7 @@ use crate::map::cell_index::NativeCellIdentity;
 use crate::map::entities::EntityCategory;
 use crate::map::resolved_terrain::{NativeCellQuery, ResolvedTerrainGrid};
 use crate::rules::locomotor_type::SpeedType;
+use crate::rules::object_type::ObjectCategory;
 use crate::rules::object_type::ObjectType;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
@@ -183,13 +184,68 @@ pub(crate) fn is_clear_to_build(
     {
         return false;
     }
+    ground_admits(sim, rules, registry, cell, speed, ty, house, cells)
+}
+
+/// What `Is_Clear_To_Build`'s playfield, overlay and ground arms answer, split
+/// for the placement overlay: water is left unpainted, so a base next to the
+/// sea does not turn the sea grey, while every other refusal paints grey.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GroundAdmission {
+    Allowed,
+    /// Refused, and the cell is a WaterSet tile the type cannot stand on.
+    Water,
+    /// Refused for any other reason: off-playfield, a slope, a bridge deck, an
+    /// overlay the type cannot share, or a LandType its SpeedType cannot use.
+    Blocked,
+}
+
+/// `Is_Clear_To_Build`'s playfield, overlay and ground arms, without the
+/// objects standing on the cell (`objects_admit` above). The armed placement's
+/// base-area display asks this to paint the ground its building type may
+/// occupy, so a unit crossing the base cannot punch a hole in it.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn ground_admits(
+    sim: &Simulation,
+    rules: &RuleSet,
+    registry: Option<&OverlayTypeRegistry>,
+    cell: NativeCellIdentity,
+    speed: Option<SpeedType>,
+    ty: Option<&ObjectType>,
+    house: Option<InternedId>,
+    cells: &NativeCellQuery<'_>,
+) -> bool {
+    ground_admission(sim, rules, registry, cell, speed, ty, house, cells)
+        == GroundAdmission::Allowed
+}
+
+/// [`ground_admits`] with the refusal classified.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn ground_admission(
+    sim: &Simulation,
+    rules: &RuleSet,
+    registry: Option<&OverlayTypeRegistry>,
+    cell: NativeCellIdentity,
+    speed: Option<SpeedType>,
+    ty: Option<&ObjectType>,
+    house: Option<InternedId>,
+    cells: &NativeCellQuery<'_>,
+) -> GroundAdmission {
+    let terrain = cells.terrain();
+    let refusal = || {
+        if terrain.native_cell_is_water_set_tile(cell) {
+            GroundAdmission::Water
+        } else {
+            GroundAdmission::Blocked
+        }
+    };
     if !crate::sim::cell_rect::retained_cell_is_in_playfield(cell, sim.playfield_bounds(), cells) {
-        return false;
+        return refusal();
     }
     // Deliberate developer override; object occupancy and bounds above still apply.
     #[cfg(feature = "debug-tools")]
     if ty.is_some() && house.is_some_and(|house| sim.debug_flags_for(house).build_anywhere) {
-        return true;
+        return GroundAdmission::Allowed;
     }
     let flags = cells.flags(cell);
     let slope = cells.ground_fields(cell).1;
@@ -198,7 +254,7 @@ pub(crate) fn is_clear_to_build(
         if let Some(overlay) = sim.overlay_grid.as_ref().map(|grid| *grid.cell(rx, ry))
             && let Some(overlay_id) = overlay.overlay_id
         {
-            return overlay_admits(
+            return if overlay_admits(
                 rules,
                 registry,
                 overlay_id,
@@ -208,7 +264,11 @@ pub(crate) fn is_clear_to_build(
                 house,
                 flags,
                 slope,
-            );
+            ) {
+                GroundAdmission::Allowed
+            } else {
+                refusal()
+            };
         }
     }
     // 0x0047C9CD: the ground itself. A LandType section missing from every
@@ -217,12 +277,11 @@ pub(crate) fn is_clear_to_build(
     // skips it); a missing key reads 1.0 or false.
     let land = cells.land_type(cell) as u8;
     let semantics = rules.terrain_rules.semantics_for_land_type(land);
-    match speed {
+    let admits = match speed {
         None => {
             if flags & (FLAG_HIGH_BRIDGE | FLAG_BRIDGE_BODY) != 0 || slope != 0 {
-                return false;
-            }
-            if ty.is_some_and(|ty| ty.naval) {
+                false
+            } else if ty.is_some_and(|ty| ty.naval) {
                 // `0x0047CA0F..0x0047CA25`: a Naval type needs a WaterSet tile.
                 terrain.native_cell_is_water_set_tile(cell)
             } else {
@@ -233,7 +292,100 @@ pub(crate) fn is_clear_to_build(
         // (`0x0047CA4D..0x0047CA6A`).
         Some(speed) => semantics
             .is_some_and(|land| land.cost_for_speed_type(speed).is_none_or(|cost| cost != 0)),
+    };
+    if admits {
+        GroundAdmission::Allowed
+    } else {
+        refusal()
     }
+}
+
+/// Whether a Structure or a Terrain object stands on `cell`: the part of
+/// `Is_Clear_To_Build`'s object arm (`0x0047C866`) that a placement cannot
+/// clear by scattering a unit. The armed placement's base-area display asks it
+/// so it never paints a cell a building or a tree already fills.
+pub(crate) fn cell_holds_structure(
+    sim: &Simulation,
+    rules: &RuleSet,
+    cells: &NativeCellQuery<'_>,
+    cell: NativeCellIdentity,
+) -> bool {
+    if cell == NativeCellIdentity::Dummy {
+        return false;
+    }
+    let (rx, ry) = cells.coord(cell);
+    let (Ok(rx), Ok(ry)) = (u16::try_from(rx), u16::try_from(ry)) else {
+        return false;
+    };
+    sim.cell_objects((rx, ry), MovementLayer::Ground)
+        .any(|member| match member {
+            // A plain tree is cleared by the placement, so it does not grey the
+            // cell; every other Terrain object still does.
+            CellObjectMember::Terrain(_) => !is_plain_tree_member(sim, rules, &member),
+            CellObjectMember::Entity(id) => sim
+                .substrate
+                .entities
+                .get(id)
+                .is_some_and(|entity| entity.category() == EntityCategory::Structure),
+        })
+}
+
+/// Whether the list member is the plain tree family
+/// ([`crate::rules::terrain_object_type::TerrainObjectType::is_plain_tree`]).
+fn is_plain_tree_member(sim: &Simulation, rules: &RuleSet, member: &CellObjectMember) -> bool {
+    let CellObjectMember::Terrain(id) = member else {
+        return false;
+    };
+    sim.terrain_objects()
+        .get(*id)
+        .map(|terrain| sim.interner.resolve(terrain.type_ref()))
+        .and_then(|name| rules.terrain_object_type_case_insensitive(name))
+        .is_some_and(|terrain| terrain.is_plain_tree())
+}
+
+/// VERA: clear the plain trees standing on a foundation so a site under
+/// them can be used. `Is_Clear_To_Build`'s object arm (`0x0047C866`) refuses any
+/// Terrain object, so this deliberately relaxes that arm for the
+/// [`crate::rules::terrain_object_type::TerrainObjectType::is_plain_tree`]
+/// family only: tiberium trees, veinhole trees, boxes, ice floes, light posts,
+/// signs, traffic lights, speakers and the stone prop keep blocking. The
+/// removal runs through the lifecycle owner, which unlinks the object from its
+/// cell now and defers its physical disposal, so the foundation's own clear test
+/// already sees the freed cell. Returns how many objects were cleared.
+pub(crate) fn clear_placement_trees(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    foundation: &crate::rules::foundation::Foundation,
+    origin: (i16, i16),
+) -> usize {
+    if origin == (0, 0) || sim.terrain_objects().objects().is_empty() {
+        return 0;
+    }
+    let mut doomed: Vec<u64> = Vec::new();
+    for (dx, dy) in foundation.cell_offsets() {
+        let cell = (origin.0.wrapping_add(dx), origin.1.wrapping_add(dy));
+        let (Ok(rx), Ok(ry)) = (u16::try_from(cell.0), u16::try_from(cell.1)) else {
+            continue;
+        };
+        for id in sim.terrain_objects().members_at((rx, ry)) {
+            if doomed.contains(&id) {
+                continue;
+            }
+            let tree = sim
+                .terrain_objects()
+                .get(id)
+                .map(|terrain| sim.interner.resolve(terrain.type_ref()))
+                .and_then(|name| rules.terrain_object_type_case_insensitive(name))
+                .is_some_and(|terrain| terrain.is_plain_tree());
+            if tree {
+                doomed.push(id);
+            }
+        }
+    }
+    for id in &doomed {
+        sim.uninit_with_context(*id, crate::sim::world::UninitContext::with_rules(rules));
+    }
+    doomed.len()
 }
 
 /// What `BuildingTypeClass::Flush_For_Placement @ 0x0045EE70` answers.
@@ -303,11 +455,18 @@ pub(crate) fn flush_for_placement(
         let Some(object) = sim.substrate.entities.get(id) else {
             continue;
         };
-        let allied = crate::map::houses::is_allied_with(
+        // A unit whose house is not an enemy makes way: an allied house, or one
+        // of the passive houses (`MultiplayPassive=`; stock Neutral/Civilian
+        // and Special set it). VERA widens the native ally test with the second
+        // arm so a civilian standing in the site is told to leave too.
+        let non_hostile = crate::map::houses::is_allied_with(
             sim.house_alliances.as_map(),
             sim.interner.resolve(object.owner()),
             sim.interner.resolve(house),
-        );
+        ) || sim
+            .houses
+            .get(&object.owner())
+            .is_some_and(crate::sim::house_state::HouseState::multiplay_passive);
         if object.category() == EntityCategory::Structure {
             // Flush45EF68..45EF7B skips this host, then scans the remaining
             // foundation cells. Overlay admission above still applies.
@@ -316,7 +475,7 @@ pub(crate) fn flush_for_placement(
             }
             return Flush::Blocked;
         }
-        if !allied {
+        if !non_hostile {
             return Flush::Blocked;
         }
         scattered = true;
@@ -352,7 +511,7 @@ fn objects_admit(
     lifted: Option<&LiftedUnit>,
 ) -> bool {
     let lifted_id = lifted.map(|lifted| lifted.id);
-    let members: Vec<CellObjectMember> = match cell {
+    let mut members: Vec<CellObjectMember> = match cell {
         NativeCellIdentity::Real(index) => {
             let cell = &terrain.cells()[index];
             sim.cell_objects((cell.rx, cell.ry), MovementLayer::Ground)
@@ -362,6 +521,28 @@ fn objects_admit(
         // The shared dummy carries no object list.
         NativeCellIdentity::Dummy => Vec::new(),
     };
+    // VERA's site rule: a plain tree does not block a Building's cell. The
+    // placement commit clears it (`Simulation::reveal_constructed_object` passes
+    // that point only after this admission), so the cursor, the click gate and
+    // the executing PLACE all see the tree cell as usable. Its occupancy bits
+    // are masked too — the object list is only half of the native refusal. Every
+    // other Terrain object keeps both.
+    let mut ignored_bits = 0u8;
+    if ty.category == ObjectCategory::Building {
+        for member in &members {
+            let CellObjectMember::Terrain(id) = member else {
+                continue;
+            };
+            if let Some(state) = sim.terrain_objects().get(*id)
+                && is_plain_tree_member(sim, rules, member)
+            {
+                ignored_bits |= crate::sim::terrain_object::terrain_raw_occupation_mask(
+                    state.occupation_bits(),
+                );
+            }
+        }
+        members.retain(|member| !is_plain_tree_member(sim, rules, member));
+    }
     let lifted_bits = match (lifted, cell) {
         (Some(lifted), NativeCellIdentity::Real(index))
             if lifted.clears_ground((terrain.cells()[index].rx, terrain.cells()[index].ry)) =>
@@ -381,6 +562,7 @@ fn objects_admit(
             .raw_cell_occupation
             .bits_at(key, MovementLayer::Ground)
             & !lifted_bits
+            & !ignored_bits
             & OCCUPATION_INFANTRY_OR_VEHICLE
             == 0
     };
