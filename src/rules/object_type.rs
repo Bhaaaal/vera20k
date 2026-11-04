@@ -795,13 +795,14 @@ pub struct ObjectType {
     /// recorded on `production_placement`.
     pub adjacent: i32,
     /// Cells this structure lends to its owner's build area beyond its own
-    /// footprint (VERA key, `BuildRadius=`). Absent means 6.
+    /// footprint (VERA key, `BuildRadius=`). Absent means 8.
     ///
-    /// Six, because VERA demands the candidate's *whole* footprint inside the
-    /// area: a retail-sized 4x3 refinery parked two cells from its yard needs
-    /// six cells of reach, and `production_placement_tests` keeps those retail
-    /// layouts. gamemd's touch test needed only `Adjacent+1` from the candidate
-    /// because it never demanded containment.
+    /// The reach is measured from the provider's footprint, but VERA demands
+    /// the candidate's *whole* footprint inside it, so a candidate spends its
+    /// own span of the budget: the gap a type may leave is
+    /// `BuildRadius - its span` on each axis. Eight leaves four cells for a
+    /// 4-wide building — a road's width — and still covers the retail layout
+    /// whose 4x3 refinery sits two cells from its yard.
     pub build_radius: i32,
     /// Cells this candidate may overhang the base build area with its whole
     /// footprint (VERA key, `PlaceExtraRange=`). Absent means
@@ -3758,7 +3759,7 @@ impl ObjectType {
         // gamemd reached for the naval yard (12), walls (8) and base defences
         // (4) by taking `Adjacent - 2`.
         let adjacent = section.read_int("Adjacent", 3);
-        let build_radius = section.read_int("BuildRadius", 6).max(0);
+        let build_radius = section.read_int("BuildRadius", 8).max(0);
         let place_extra_range = section
             .read_int("PlaceExtraRange", adjacent.saturating_sub(2).max(0))
             .max(0);

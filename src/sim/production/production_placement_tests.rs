@@ -2934,14 +2934,14 @@ fn place_ready_building_requires_a_provider_inside_its_build_radius() {
     assert!(sim.mark_entity_put(1, crate::sim::world::UninitContext::with_rules(&rules)));
     ready_building(&mut sim, &rules, "Americans", "GAPOWR");
 
-    // BuildRadius=6 from the yard's (10,10)..(11,11): every one of the 2x2's
-    // cells must stay inside, so its far cell may reach (16,11) but not 17.
+    // BuildRadius=8 from the yard's (10,10)..(11,11): every one of the 2x2's
+    // cells must stay inside, so its far cell may reach (18,11) but not 19.
     assert!(crate::sim::production::is_within_build_area(
         &sim,
         &rules,
         "Americans",
         rules.object("GAPOWR").unwrap(),
-        16,
+        18,
         10
     ));
     assert!(!crate::sim::production::is_within_build_area(
@@ -2949,7 +2949,7 @@ fn place_ready_building_requires_a_provider_inside_its_build_radius() {
         &rules,
         "Americans",
         rules.object("GAPOWR").unwrap(),
-        17,
+        19,
         10
     ));
     assert!(place_building(
@@ -2957,7 +2957,7 @@ fn place_ready_building_requires_a_provider_inside_its_build_radius() {
         &rules,
         "Americans",
         "GAPOWR",
-        (16, 10),
+        (18, 10),
         None
     ));
     assert!(!place_building(
@@ -2965,7 +2965,7 @@ fn place_ready_building_requires_a_provider_inside_its_build_radius() {
         &rules,
         "Americans",
         "GAPOWR",
-        (17, 10),
+        (19, 10),
         None
     ));
 }
@@ -2981,14 +2981,14 @@ fn place_extra_range_follows_adjacent_for_the_long_reach_types() {
     stamp_type_foundation(&mut sim, &rules, 1);
     assert!(sim.mark_entity_put(1, crate::sim::world::UninitContext::with_rules(&rules)));
     ready_building(&mut sim, &rules, "Americans", "GAPOWR");
-    // Adjacent=12 -> ten extra cells outside BuildRadius=6, so the 2x2's far
-    // cell may reach sixteen cells from the yard.
+    // Adjacent=12 -> ten extra cells outside BuildRadius=8, so the 2x2's far
+    // cell may reach eighteen cells from the yard.
     assert!(crate::sim::production::is_within_build_area(
         &sim,
         &rules,
         "Americans",
         rules.object("GAPOWR").unwrap(),
-        26,
+        28,
         10
     ));
     assert!(!crate::sim::production::is_within_build_area(
@@ -2996,7 +2996,7 @@ fn place_extra_range_follows_adjacent_for_the_long_reach_types() {
         &rules,
         "Americans",
         rules.object("GAPOWR").unwrap(),
-        27,
+        29,
         10
     ));
 }
@@ -3036,9 +3036,9 @@ fn build_area_cells_paint_the_provider_radius_and_grey_structures() {
     let yard: std::collections::BTreeSet<(u16, u16)> = [(10, 10), (11, 10), (10, 11), (11, 11)]
         .into_iter()
         .collect();
-    // BuildRadius=6 around the yard's 2x2 at (10,10)..(11,11).
-    let region: std::collections::BTreeSet<(u16, u16)> = (4..=17)
-        .flat_map(|x| (4..=17).map(move |y| (x, y)))
+    // BuildRadius=8 around the yard's 2x2 at (10,10)..(11,11).
+    let region: std::collections::BTreeSet<(u16, u16)> = (2..=19)
+        .flat_map(|x| (2..=19).map(move |y| (x, y)))
         .collect();
     assert_eq!(blocked, yard, "the provider's own cells are grey");
     assert_eq!(&allowed | &blocked, region);
@@ -3046,8 +3046,8 @@ fn build_area_cells_paint_the_provider_radius_and_grey_structures() {
         allowed.contains(&(9, 9)),
         "a unit standing there does not grey its cell"
     );
-    assert!(allowed.contains(&(4, 4)) && allowed.contains(&(17, 17)));
-    assert!(!allowed.contains(&(18, 17)) && !blocked.contains(&(18, 17)));
+    assert!(allowed.contains(&(2, 2)) && allowed.contains(&(19, 19)));
+    assert!(!allowed.contains(&(20, 19)) && !blocked.contains(&(20, 19)));
     assert!(area.allowed.iter().all(|cell| cell.valid));
     assert!(area.blocked.iter().all(|cell| !cell.valid));
 
