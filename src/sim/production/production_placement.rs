@@ -967,6 +967,12 @@ pub fn build_area_cells(
     area
 }
 
+#[cfg(any(test, feature = "test-support", feature = "debug-tools"))]
+#[path = "production_placement_report.rs"]
+mod placement_report;
+#[cfg(any(test, feature = "test-support", feature = "debug-tools"))]
+pub use self::placement_report::build_area_report;
+
 /// One display cell: its coordinate with the current Cell ground fields the
 /// PLACE cells read (`Cell47EC90`), and whether the area admits it.
 fn build_area_cell(

@@ -3144,6 +3144,53 @@ fn base_normal_false_structures_do_not_extend_build_area() {
     assert!(placed, "the yard's own area admits the same building");
 }
 
+/// Test Mode's placement record names the attempt, the providers, each
+/// footprint gate and the overlay's own map around the site.
+#[test]
+fn build_area_report_names_the_attempt_providers_and_gates() {
+    let mut sim = placement_sim();
+    let rules = placement_radius_rules();
+    spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
+    sim.remove_entity_occupancy(1);
+    stamp_type_foundation(&mut sim, &rules, 1);
+    assert!(sim.mark_entity_put(1, crate::sim::world::UninitContext::with_rules(&rules)));
+    ready_building(&mut sim, &rules, "Americans", "GAPOWR");
+
+    let refused = crate::sim::production::build_area_report(
+        &sim,
+        &rules,
+        "Americans",
+        "GAPOWR",
+        (40, 40),
+        (40, 40),
+        None,
+    )
+    .expect("a report for the site outside the area");
+    assert!(refused.contains("type=GAPOWR"), "{refused}");
+    assert!(refused.contains("cursor=(40,40)"), "{refused}");
+    assert!(refused.contains("in_build_area=false"), "{refused}");
+    assert!(refused.contains("GACNST@(10,10)"), "{refused}");
+    assert!(refused.contains("cell (40,40): area=outside"), "{refused}");
+    assert!(refused.contains("map: x right"), "{refused}");
+    assert!(refused.lines().count() > 10, "{refused}");
+
+    let inside = crate::sim::production::build_area_report(
+        &sim,
+        &rules,
+        "Americans",
+        "GAPOWR",
+        (12, 10),
+        (12, 10),
+        None,
+    )
+    .expect("a report for the site inside the area");
+    assert!(inside.contains("in_build_area=true"), "{inside}");
+    assert!(
+        inside.contains('o'),
+        "the map marks the footprint's own cells: {inside}"
+    );
+}
+
 /// BuildOffAlly lends an allied structure's build area only while the game
 /// option is on and the structure is `EligibileForAllyBuilding=`.
 #[test]

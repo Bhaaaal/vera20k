@@ -47,6 +47,8 @@ pub use self::production_placement::{
     build_area_cells, cycle_active_producer_for_owner_category, is_within_build_area,
     placement_preview_for_owner_with_overlays,
 };
+#[cfg(any(test, feature = "test-support", feature = "debug-tools"))]
+pub use self::production_placement::build_area_report;
 #[cfg(any(test, feature = "test-support"))]
 pub(in crate::sim) use self::production_queue::house_for_test;
 pub use self::production_queue::{

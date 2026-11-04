@@ -449,6 +449,10 @@ pub(crate) fn place_ready_building_at_cell(
         .as_ref()
         .is_none_or(|preview| preview.foundation_visible);
     if !in_build_area || !visible {
+        // Test Mode records the whole attempt: the area the overlay draws, the
+        // footprint this click would put down, and each gate that refused it.
+        #[cfg(feature = "dev-overlays")]
+        crate::app::diagnostics::placement_dump::record(state, &owner, type_id, cursor_cell, (rx, ry));
         if let Some(reason) = state
             .match_state
             .input
