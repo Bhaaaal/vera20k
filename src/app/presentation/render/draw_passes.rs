@@ -795,14 +795,31 @@ pub(super) fn dispatch_draw_passes(
     // Cell47EC90 flags20600 -> plain Convert/RLE4960A0: opaque stores,
     // world camera, neither A nor Z reads/writes. The shared neutral-A surface
     // binding and passthrough pipeline implement that material directly. The
-    // base build area draws first, so the active PLACE cells sit on top of it.
+    // The base build area draws first: grey (a cell a placement cannot use)
+    // under light green (one it can), so the active PLACE cells sit on top of
+    // both.
     if let (Some(overlay), Some((buffer, count))) = (
         state
             .match_state
             .match_presentation
             .selection_overlay
             .as_ref(),
-        pool.get("build_area"),
+        pool.get("build_area_blocked"),
+    ) {
+        state.renderer.batch_renderer.draw_with_buffer_passthrough(
+            &mut pass,
+            overlay.diamond_filled_texture(),
+            buffer,
+            count,
+        );
+    }
+    if let (Some(overlay), Some((buffer, count))) = (
+        state
+            .match_state
+            .match_presentation
+            .selection_overlay
+            .as_ref(),
+        pool.get("build_area_allowed"),
     ) {
         state.renderer.batch_renderer.draw_with_buffer_passthrough(
             &mut pass,

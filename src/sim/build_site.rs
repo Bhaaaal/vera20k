@@ -186,6 +186,19 @@ pub(crate) fn is_clear_to_build(
     ground_admits(sim, rules, registry, cell, speed, ty, house, cells)
 }
 
+/// What `Is_Clear_To_Build`'s playfield, overlay and ground arms answer, split
+/// for the placement overlay: water is left unpainted, so a base next to the
+/// sea does not turn the sea grey, while every other refusal paints grey.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GroundAdmission {
+    Allowed,
+    /// Refused, and the cell is a WaterSet tile the type cannot stand on.
+    Water,
+    /// Refused for any other reason: off-playfield, a slope, a bridge deck, an
+    /// overlay the type cannot share, or a LandType its SpeedType cannot use.
+    Blocked,
+}
+
 /// `Is_Clear_To_Build`'s playfield, overlay and ground arms, without the
 /// objects standing on the cell (`objects_admit` above). The armed placement's
 /// base-area display asks this to paint the ground its building type may
@@ -201,14 +214,37 @@ pub(crate) fn ground_admits(
     house: Option<InternedId>,
     cells: &NativeCellQuery<'_>,
 ) -> bool {
+    ground_admission(sim, rules, registry, cell, speed, ty, house, cells)
+        == GroundAdmission::Allowed
+}
+
+/// [`ground_admits`] with the refusal classified.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn ground_admission(
+    sim: &Simulation,
+    rules: &RuleSet,
+    registry: Option<&OverlayTypeRegistry>,
+    cell: NativeCellIdentity,
+    speed: Option<SpeedType>,
+    ty: Option<&ObjectType>,
+    house: Option<InternedId>,
+    cells: &NativeCellQuery<'_>,
+) -> GroundAdmission {
     let terrain = cells.terrain();
+    let refusal = || {
+        if terrain.native_cell_is_water_set_tile(cell) {
+            GroundAdmission::Water
+        } else {
+            GroundAdmission::Blocked
+        }
+    };
     if !crate::sim::cell_rect::retained_cell_is_in_playfield(cell, sim.playfield_bounds(), cells) {
-        return false;
+        return refusal();
     }
     // Deliberate developer override; object occupancy and bounds above still apply.
     #[cfg(feature = "debug-tools")]
     if ty.is_some() && house.is_some_and(|house| sim.debug_flags_for(house).build_anywhere) {
-        return true;
+        return GroundAdmission::Allowed;
     }
     let flags = cells.flags(cell);
     let slope = cells.ground_fields(cell).1;
@@ -217,7 +253,7 @@ pub(crate) fn ground_admits(
         if let Some(overlay) = sim.overlay_grid.as_ref().map(|grid| *grid.cell(rx, ry))
             && let Some(overlay_id) = overlay.overlay_id
         {
-            return overlay_admits(
+            return if overlay_admits(
                 rules,
                 registry,
                 overlay_id,
@@ -227,7 +263,11 @@ pub(crate) fn ground_admits(
                 house,
                 flags,
                 slope,
-            );
+            ) {
+                GroundAdmission::Allowed
+            } else {
+                refusal()
+            };
         }
     }
     // 0x0047C9CD: the ground itself. A LandType section missing from every
@@ -236,12 +276,11 @@ pub(crate) fn ground_admits(
     // skips it); a missing key reads 1.0 or false.
     let land = cells.land_type(cell) as u8;
     let semantics = rules.terrain_rules.semantics_for_land_type(land);
-    match speed {
+    let admits = match speed {
         None => {
             if flags & (FLAG_HIGH_BRIDGE | FLAG_BRIDGE_BODY) != 0 || slope != 0 {
-                return false;
-            }
-            if ty.is_some_and(|ty| ty.naval) {
+                false
+            } else if ty.is_some_and(|ty| ty.naval) {
                 // `0x0047CA0F..0x0047CA25`: a Naval type needs a WaterSet tile.
                 terrain.native_cell_is_water_set_tile(cell)
             } else {
@@ -252,6 +291,11 @@ pub(crate) fn ground_admits(
         // (`0x0047CA4D..0x0047CA6A`).
         Some(speed) => semantics
             .is_some_and(|land| land.cost_for_speed_type(speed).is_none_or(|cost| cost != 0)),
+    };
+    if admits {
+        GroundAdmission::Allowed
+    } else {
+        refusal()
     }
 }
 

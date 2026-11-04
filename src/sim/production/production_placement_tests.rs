@@ -2903,42 +2903,218 @@ fn owned_wall_replacement_rechecks_building_admission_after_removal() {
     );
 }
 
+/// Two 2x2 buildings where the candidate's `Adjacent=` is the test's input, so
+/// its `PlaceExtraRange=` default can be exercised.
+fn extra_range_rules(adjacent: i32) -> RuleSet {
+    let ini = IniFile::from_str(&format!(
+        "[Countries]\n0=Americans\n1=Alliance\n2=Russians\n3=Soviet\n[InfantryTypes]\n\
+         [VehicleTypes]\n0=MTNK\n[AircraftTypes]\n[BuildingTypes]\n0=GACNST\n1=GAPOWR\n\
+         [GACNST]\nOwner=Americans\nStrength=1000\nArmor=wood\nTechLevel=1\n\
+         Foundation=2x2\nBaseNormal=yes\nFactory=BuildingType\n\
+         [GAPOWR]\nOwner=Americans\nStrength=750\nArmor=wood\nTechLevel=1\n\
+         Foundation=2x2\nAdjacent={adjacent}\n[Clear]\nBuildable=yes\n"
+    ));
+    RuleSet::from_ini_with_fixed_art_for_test(
+        &ini,
+        &IniFile::from_str("[GACNST]\nFoundation=2x2\n[GAPOWR]\nFoundation=2x2\n"),
+    )
+    .expect("extra-range rules and ART should parse")
+}
+
 #[test]
-fn place_ready_building_requires_base_normal_provider_within_adjacent_range() {
+fn place_ready_building_requires_a_provider_inside_its_build_radius() {
     let rules = placement_radius_rules();
 
     let mut sim = placement_sim();
     spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
-    // Display4A8FC5 queries the actually marked Building in each ring cell.
-    // The raw helper starts with a 1x1 footprint; install fixed ART before
-    // remarking the provider, as construction does before Building Mark.
+    // The raw helper starts with a 1x1 footprint; the provider's marked 2x2 is
+    // what the radius reaches from.
     sim.remove_entity_occupancy(1);
     stamp_type_foundation(&mut sim, &rules, 1);
     assert!(sim.mark_entity_put(1, crate::sim::world::UninitContext::with_rules(&rules)));
-    assert_eq!(
-        sim.occupancy().first_building_on_layer(
-            11,
-            10,
-            crate::sim::movement::locomotor::MovementLayer::Ground
-        ),
-        Some(1),
-        "the ART footprint's east cell must actually contain the provider"
-    );
     ready_building(&mut sim, &rules, "Americans", "GAPOWR");
 
-    let placed = place_building(&mut sim, &rules, "Americans", "GAPOWR", (12, 10), None);
-    assert!(placed);
+    // BuildRadius=6 from the yard's (10,10)..(11,11): every one of the 2x2's
+    // cells must stay inside, so its far cell may reach (16,11) but not 17.
+    assert!(crate::sim::production::is_within_build_area(
+        &sim,
+        &rules,
+        "Americans",
+        rules.object("GAPOWR").unwrap(),
+        16,
+        10
+    ));
+    assert!(!crate::sim::production::is_within_build_area(
+        &sim,
+        &rules,
+        "Americans",
+        rules.object("GAPOWR").unwrap(),
+        17,
+        10
+    ));
+    assert!(place_building(
+        &mut sim,
+        &rules,
+        "Americans",
+        "GAPOWR",
+        (16, 10),
+        None
+    ));
+    assert!(!place_building(
+        &mut sim,
+        &rules,
+        "Americans",
+        "GAPOWR",
+        (17, 10),
+        None
+    ));
+}
 
-    let mut far_sim = placement_sim();
-    spawn_structure(&mut far_sim, &rules, 1, "Americans", "GACNST", 10, 10);
-    far_sim.remove_entity_occupancy(1);
-    stamp_type_foundation(&mut far_sim, &rules, 1);
-    assert!(far_sim.mark_entity_put(1, crate::sim::world::UninitContext::with_rules(&rules)));
-    ready_building(&mut far_sim, &rules, "Americans", "GAPOWR");
-    // GAPOWR has Adjacent=0: its expanded ring at (20,10) cannot reach
-    // the yard's marked 2x2 footprint at (10,10).
-    let placed = place_building(&mut far_sim, &rules, "Americans", "GAPOWR", (20, 10), None);
-    assert!(!placed);
+/// `PlaceExtraRange=` defaults to `max(0, Adjacent - 2)`, which is what lets a
+/// naval yard (12) or a wall (8) reach out the way gamemd's own key did.
+#[test]
+fn place_extra_range_follows_adjacent_for_the_long_reach_types() {
+    let rules = extra_range_rules(12);
+    let mut sim = placement_sim();
+    spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
+    sim.remove_entity_occupancy(1);
+    stamp_type_foundation(&mut sim, &rules, 1);
+    assert!(sim.mark_entity_put(1, crate::sim::world::UninitContext::with_rules(&rules)));
+    ready_building(&mut sim, &rules, "Americans", "GAPOWR");
+    // Adjacent=12 -> ten extra cells outside BuildRadius=6, so the 2x2's far
+    // cell may reach sixteen cells from the yard.
+    assert!(crate::sim::production::is_within_build_area(
+        &sim,
+        &rules,
+        "Americans",
+        rules.object("GAPOWR").unwrap(),
+        26,
+        10
+    ));
+    assert!(!crate::sim::production::is_within_build_area(
+        &sim,
+        &rules,
+        "Americans",
+        rules.object("GAPOWR").unwrap(),
+        27,
+        10
+    ));
+}
+
+/// The painted area is every cell inside some provider's `BuildRadius`, split
+/// into the ground the armed type can use (light green) and the rest (grey):
+/// an existing structure is grey, a unit is not, and the radius boundary is
+/// exact. With no provider, nothing is painted.
+#[test]
+fn build_area_cells_paint_the_provider_radius_and_grey_structures() {
+    let mut sim = placement_sim();
+    let rules = placement_radius_rules();
+    spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
+    sim.remove_entity_occupancy(1);
+    stamp_type_foundation(&mut sim, &rules, 1);
+    assert!(sim.mark_entity_put(1, crate::sim::world::UninitContext::with_rules(&rules)));
+    // A unit parked inside the area, without UnitClass::Unlimbo's entry test,
+    // must not turn its cell grey.
+    let terrain = sim.resolved_terrain.take();
+    sim.spawn_object("MTNK", "Americans", 9, 9, 0, &rules)
+        .expect("fixture tank spawns");
+    sim.resolved_terrain = terrain;
+    ready_building(&mut sim, &rules, "Americans", "GAPOWR");
+
+    let area = crate::sim::production::build_area_cells(
+        &sim,
+        &rules,
+        "Americans",
+        rules.object("GAPOWR").unwrap(),
+        None,
+    );
+
+    let allowed: std::collections::BTreeSet<(u16, u16)> =
+        area.allowed.iter().map(|c| c.coord).collect();
+    let blocked: std::collections::BTreeSet<(u16, u16)> =
+        area.blocked.iter().map(|c| c.coord).collect();
+    let yard: std::collections::BTreeSet<(u16, u16)> = [(10, 10), (11, 10), (10, 11), (11, 11)]
+        .into_iter()
+        .collect();
+    // BuildRadius=6 around the yard's 2x2 at (10,10)..(11,11).
+    let region: std::collections::BTreeSet<(u16, u16)> = (4..=17)
+        .flat_map(|x| (4..=17).map(move |y| (x, y)))
+        .collect();
+    assert_eq!(blocked, yard, "the provider's own cells are grey");
+    assert_eq!(&allowed | &blocked, region);
+    assert!(
+        allowed.contains(&(9, 9)),
+        "a unit standing there does not grey its cell"
+    );
+    assert!(allowed.contains(&(4, 4)) && allowed.contains(&(17, 17)));
+    assert!(!allowed.contains(&(18, 17)) && !blocked.contains(&(18, 17)));
+    assert!(area.allowed.iter().all(|cell| cell.valid));
+    assert!(area.blocked.iter().all(|cell| !cell.valid));
+
+    let mut bare = placement_sim();
+    ready_building(&mut bare, &rules, "Americans", "GAPOWR");
+    let empty = crate::sim::production::build_area_cells(
+        &bare,
+        &rules,
+        "Americans",
+        rules.object("GAPOWR").unwrap(),
+        None,
+    );
+    assert!(empty.allowed.is_empty() && empty.blocked.is_empty());
+}
+
+/// Water is left unpainted — a base next to the sea must not turn the sea grey
+/// — while every other refusal inside the radius is grey: a sloped cell and a
+/// LandType the building's speed cannot use.
+#[test]
+fn build_area_cells_leave_water_unpainted_and_grey_other_refusals() {
+    const SLOPED: (u16, u16) = (8, 8);
+    const UNBUILDABLE: (u16, u16) = (13, 13);
+    let mut sim = Simulation::new();
+    install_refinery_test_terrain_on(&mut sim, |cell| {
+        // The WaterSet below is [0, 14); land cells sit outside it.
+        cell.final_tile_index = 100;
+        if (cell.rx, cell.ry) == SLOPED {
+            cell.slope_type = 2;
+        }
+        if (cell.rx, cell.ry) == UNBUILDABLE {
+            // No `[LandTypes]` row answers, so the ground refuses it, and its
+            // tile is a WaterSet one: that refusal reads as water.
+            cell.land_type = 9;
+            cell.final_tile_index = 3;
+        }
+    });
+    sim.resolved_terrain
+        .as_mut()
+        .unwrap()
+        .set_projectile_water_set_base(0);
+    let rules = placement_radius_rules();
+    spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
+    sim.remove_entity_occupancy(1);
+    stamp_type_foundation(&mut sim, &rules, 1);
+    assert!(sim.mark_entity_put(1, crate::sim::world::UninitContext::with_rules(&rules)));
+    ready_building(&mut sim, &rules, "Americans", "GAPOWR");
+
+    let area = crate::sim::production::build_area_cells(
+        &sim,
+        &rules,
+        "Americans",
+        rules.object("GAPOWR").unwrap(),
+        None,
+    );
+    let allowed: std::collections::BTreeSet<(u16, u16)> =
+        area.allowed.iter().map(|c| c.coord).collect();
+    let blocked: std::collections::BTreeSet<(u16, u16)> =
+        area.blocked.iter().map(|c| c.coord).collect();
+    assert!(blocked.contains(&SLOPED), "a slope is grey");
+    assert!(
+        !allowed.contains(&SLOPED),
+        "a slope is not part of the usable area"
+    );
+    assert!(
+        !allowed.contains(&UNBUILDABLE) && !blocked.contains(&UNBUILDABLE),
+        "water is painted neither green nor grey"
+    );
 }
 
 #[test]
@@ -2966,108 +3142,6 @@ fn base_normal_false_structures_do_not_extend_build_area() {
     assert!(!placed);
     let placed = place_building(&mut sim, &rules, "Americans", "GAPOWR", (52, 50), None);
     assert!(placed, "the yard's own area admits the same building");
-}
-
-/// The painted cells are the ones a click places on, not the ground a legal
-/// foundation covers: a 2x2 click anchors its north-west corner on the cursor
-/// (`4A94F0`/`4A8C9E`), so the reach stops at the anchor band's edge and never
-/// runs one footprint past it. Units do not punch holes; the provider's own
-/// footprint is not offered.
-#[test]
-fn build_area_cells_are_the_clickable_anchors_of_the_provider_band() {
-    let mut sim = placement_sim();
-    let rules = placement_radius_rules();
-    spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
-    // The raw fixture starts with a 1x1 footprint; the provider's marked 2x2
-    // is what widens the band.
-    sim.remove_entity_occupancy(1);
-    stamp_type_foundation(&mut sim, &rules, 1);
-    assert!(sim.mark_entity_put(1, crate::sim::world::UninitContext::with_rules(&rules)));
-    // A unit parked inside the band, without UnitClass::Unlimbo's entry test,
-    // must not cut a hole in the painted extent.
-    let terrain = sim.resolved_terrain.take();
-    sim.spawn_object("MTNK", "Americans", 9, 9, 0, &rules)
-        .expect("fixture tank spawns");
-    sim.resolved_terrain = terrain;
-    ready_building(&mut sim, &rules, "Americans", "GAPOWR");
-
-    let area = crate::sim::production::build_area_cells(
-        &sim,
-        &rules,
-        "Americans",
-        rules.object("GAPOWR").unwrap(),
-        None,
-    );
-
-    let cells: std::collections::BTreeSet<(u16, u16)> = area.iter().map(|c| c.coord).collect();
-    // GAPOWR has Adjacent=0 and a 2x2 footprint: an anchor reaches one cell
-    // north-west of the yard's far cell and one cell north-west of its near
-    // cell, i.e. (8,8)..(12,12). Anchors whose 2x2 would stand on the yard at
-    // (10,10)..(11,11) are refused (`cell_in_build_area_ring` excludes the
-    // placed rectangle; `CanPlaceAt` refuses the overlap).
-    let expected: std::collections::BTreeSet<(u16, u16)> = (8..=12)
-        .flat_map(|x| (8..=12).map(move |y| (x, y)))
-        .filter(|&(x, y)| !((9..=11).contains(&x) && (9..=11).contains(&y)))
-        .collect();
-    assert_eq!(cells, expected);
-    assert!(
-        !cells.contains(&(13, 13)),
-        "the far corner of a legal foundation is not a place the click accepts"
-    );
-    assert!(
-        area.iter().all(|cell| cell.valid && cell.level == 0),
-        "every painted cell carries its current ground fields"
-    );
-}
-
-/// The click places the whole foundation, so the painted cell asks the ground
-/// of every foundation cell: a sloped neighbour refuses the site even when the
-/// cursor cell itself is flat. With no provider, nothing is painted.
-#[test]
-fn build_area_cells_ask_the_whole_foundations_ground() {
-    const SLOPED: (u16, u16) = (13, 13);
-    let mut sim = Simulation::new();
-    install_refinery_test_terrain_on(&mut sim, |cell| {
-        if (cell.rx, cell.ry) == SLOPED {
-            cell.slope_type = 2;
-        }
-    });
-    let rules = placement_radius_rules();
-    spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
-    sim.remove_entity_occupancy(1);
-    stamp_type_foundation(&mut sim, &rules, 1);
-    assert!(sim.mark_entity_put(1, crate::sim::world::UninitContext::with_rules(&rules)));
-    ready_building(&mut sim, &rules, "Americans", "GAPOWR");
-    let area = crate::sim::production::build_area_cells(
-        &sim,
-        &rules,
-        "Americans",
-        rules.object("GAPOWR").unwrap(),
-        None,
-    );
-    let cells: std::collections::BTreeSet<(u16, u16)> = area.iter().map(|c| c.coord).collect();
-    assert!(
-        !cells.contains(&(12, 12)),
-        "that site's 2x2 would stand on the sloped cell"
-    );
-    assert!(
-        cells.contains(&(12, 10)),
-        "the same anchor column one row up clears the slope"
-    );
-
-    let mut bare = placement_sim();
-    ready_building(&mut bare, &rules, "Americans", "GAPOWR");
-    assert!(
-        crate::sim::production::build_area_cells(
-            &bare,
-            &rules,
-            "Americans",
-            rules.object("GAPOWR").unwrap(),
-            None,
-        )
-        .is_empty(),
-        "no provider, no base extent"
-    );
 }
 
 /// BuildOffAlly lends an allied structure's build area only while the game
