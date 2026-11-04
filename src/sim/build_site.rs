@@ -23,6 +23,7 @@ use crate::map::cell_index::NativeCellIdentity;
 use crate::map::entities::EntityCategory;
 use crate::map::resolved_terrain::{NativeCellQuery, ResolvedTerrainGrid};
 use crate::rules::locomotor_type::SpeedType;
+use crate::rules::object_type::ObjectCategory;
 use crate::rules::object_type::ObjectType;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
@@ -305,6 +306,7 @@ pub(crate) fn ground_admission(
 /// so it never paints a cell a building or a tree already fills.
 pub(crate) fn cell_holds_structure(
     sim: &Simulation,
+    rules: &RuleSet,
     cells: &NativeCellQuery<'_>,
     cell: NativeCellIdentity,
 ) -> bool {
@@ -317,7 +319,9 @@ pub(crate) fn cell_holds_structure(
     };
     sim.cell_objects((rx, ry), MovementLayer::Ground)
         .any(|member| match member {
-            CellObjectMember::Terrain(_) => true,
+            // A plain tree is cleared by the placement, so it does not grey the
+            // cell; every other Terrain object still does.
+            CellObjectMember::Terrain(_) => !is_plain_tree_member(sim, rules, &member),
             CellObjectMember::Entity(id) => sim
                 .substrate
                 .entities
@@ -326,7 +330,20 @@ pub(crate) fn cell_holds_structure(
         })
 }
 
-/// VERA: clear the plain trees standing on `ty`'s foundation so a site under
+/// Whether the list member is the plain tree family
+/// ([`crate::rules::terrain_object_type::TerrainObjectType::is_plain_tree`]).
+fn is_plain_tree_member(sim: &Simulation, rules: &RuleSet, member: &CellObjectMember) -> bool {
+    let CellObjectMember::Terrain(id) = member else {
+        return false;
+    };
+    sim.terrain_objects()
+        .get(*id)
+        .map(|terrain| sim.interner.resolve(terrain.type_ref()))
+        .and_then(|name| rules.terrain_object_type_case_insensitive(name))
+        .is_some_and(|terrain| terrain.is_plain_tree())
+}
+
+/// VERA: clear the plain trees standing on a foundation so a site under
 /// them can be used. `Is_Clear_To_Build`'s object arm (`0x0047C866`) refuses any
 /// Terrain object, so this deliberately relaxes that arm for the
 /// [`crate::rules::terrain_object_type::TerrainObjectType::is_plain_tree`]
@@ -338,14 +355,14 @@ pub(crate) fn cell_holds_structure(
 pub(crate) fn clear_placement_trees(
     sim: &mut Simulation,
     rules: &RuleSet,
-    ty: &ObjectType,
+    foundation: &crate::rules::foundation::Foundation,
     origin: (i16, i16),
 ) -> usize {
     if origin == (0, 0) || sim.terrain_objects().objects().is_empty() {
         return 0;
     }
     let mut doomed: Vec<u64> = Vec::new();
-    for (dx, dy) in ty.foundation.cell_offsets() {
+    for (dx, dy) in foundation.cell_offsets() {
         let cell = (origin.0.wrapping_add(dx), origin.1.wrapping_add(dy));
         let (Ok(rx), Ok(ry)) = (u16::try_from(cell.0), u16::try_from(cell.1)) else {
             continue;
@@ -494,7 +511,7 @@ fn objects_admit(
     lifted: Option<&LiftedUnit>,
 ) -> bool {
     let lifted_id = lifted.map(|lifted| lifted.id);
-    let members: Vec<CellObjectMember> = match cell {
+    let mut members: Vec<CellObjectMember> = match cell {
         NativeCellIdentity::Real(index) => {
             let cell = &terrain.cells()[index];
             sim.cell_objects((cell.rx, cell.ry), MovementLayer::Ground)
@@ -504,6 +521,28 @@ fn objects_admit(
         // The shared dummy carries no object list.
         NativeCellIdentity::Dummy => Vec::new(),
     };
+    // VERA's site rule: a plain tree does not block a Building's cell. The
+    // placement commit clears it (`Simulation::reveal_constructed_object` passes
+    // that point only after this admission), so the cursor, the click gate and
+    // the executing PLACE all see the tree cell as usable. Its occupancy bits
+    // are masked too — the object list is only half of the native refusal. Every
+    // other Terrain object keeps both.
+    let mut ignored_bits = 0u8;
+    if ty.category == ObjectCategory::Building {
+        for member in &members {
+            let CellObjectMember::Terrain(id) = member else {
+                continue;
+            };
+            if let Some(state) = sim.terrain_objects().get(*id)
+                && is_plain_tree_member(sim, rules, member)
+            {
+                ignored_bits |= crate::sim::terrain_object::terrain_raw_occupation_mask(
+                    state.occupation_bits(),
+                );
+            }
+        }
+        members.retain(|member| !is_plain_tree_member(sim, rules, member));
+    }
     let lifted_bits = match (lifted, cell) {
         (Some(lifted), NativeCellIdentity::Real(index))
             if lifted.clears_ground((terrain.cells()[index].rx, terrain.cells()[index].ry)) =>
@@ -523,6 +562,7 @@ fn objects_admit(
             .raw_cell_occupation
             .bits_at(key, MovementLayer::Ground)
             & !lifted_bits
+            & !ignored_bits
             & OCCUPATION_INFANTRY_OR_VEHICLE
             == 0
     };

@@ -3218,7 +3218,25 @@ fn placement_clears_a_plain_tree_but_not_a_tiberium_tree() {
         "the fixture tree stands on the site"
     );
     let preview = preview_at(&sim, &rules, "Americans", "GAPOWR", (12, 10), None);
-    assert_eq!(preview.reason, Some(BuildingPlacementError::BlockedTerrain));
+    assert_eq!(
+        preview.reason, None,
+        "a plain tree does not block the site; the commit clears it"
+    );
+    assert!(
+        preview.cells.iter().all(|cell| cell.valid),
+        "so the cursor paints the site as usable"
+    );
+    let area = crate::sim::production::build_area_cells(
+        &sim,
+        &rules,
+        "Americans",
+        rules.object("GAPOWR").unwrap(),
+        None,
+    );
+    assert!(
+        area.allowed.iter().any(|cell| cell.coord == (12, 10)),
+        "and the overlay offers the tree cell"
+    );
 
     assert!(
         place_building(&mut sim, &rules, "Americans", "GAPOWR", (12, 10), None),
@@ -3228,6 +3246,35 @@ fn placement_clears_a_plain_tree_but_not_a_tiberium_tree() {
         sim.terrain_objects().members_at((12, 10)).count(),
         0,
         "the cleared tree no longer holds the cell"
+    );
+
+    // A refused attempt must leave the tree standing: only a commit clears it.
+    let mut refused = placement_sim();
+    spawn_structure(&mut refused, &rules, 1, "Americans", "GACNST", 10, 10);
+    ready_building(&mut refused, &rules, "Americans", "GAPOWR");
+    crate::sim::terrain_spawn::construct_terrain_objects(
+        &mut refused,
+        &[crate::map::overlay::TerrainObject {
+            rx: 12,
+            ry: 10,
+            name: "TREE01".to_string(),
+        }],
+        &rules,
+        false,
+    );
+    let terrain = refused.resolved_terrain.take();
+    refused
+        .spawn_object("MTNK", "Americans", 13, 10, 0, &rules)
+        .expect("own tank refuses the attempt");
+    refused.resolved_terrain = terrain;
+    assert!(
+        !place_building(&mut refused, &rules, "Americans", "GAPOWR", (12, 10), None),
+        "the standing unit refuses the site"
+    );
+    assert_eq!(
+        refused.terrain_objects().members_at((12, 10)).count(),
+        1,
+        "a refused attempt keeps its tree"
     );
 
     // A tiberium tree is a tiberium source, not a plain tree: it keeps blocking.

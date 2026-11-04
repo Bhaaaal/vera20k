@@ -405,14 +405,13 @@ pub(crate) fn place_production_with_overlays(
     else {
         return false;
     };
-    // VERA's site maintenance before Unlimbo's own admission: a site the placer
-    // may use clears its plain trees, and the placer's non-hostile units are
-    // told to leave (`Flush_For_Placement`). Units still standing in the
-    // foundation refuse this attempt — the ready object is retained — so the
-    // player places again once they have moved out, instead of the building
-    // landing on top of them.
+    // VERA's site maintenance before Unlimbo's own admission: the placer's
+    // non-hostile units are told to leave (`Flush_For_Placement`). Units still
+    // standing in the foundation refuse this attempt — the ready object is
+    // retained — so the player places again once they have moved out, instead of
+    // the building landing on top of them. The plain trees under the site are
+    // cleared by the commit itself, never by a refused attempt.
     if is_within_build_area(sim, rules, owner, obj, rx, ry) {
-        crate::sim::build_site::clear_placement_trees(sim, rules, obj, (rx as i16, ry as i16));
         let _ = crate::sim::build_site::flush_for_placement(
             sim,
             rules,
@@ -981,7 +980,7 @@ pub fn build_area_cells(
             if ground == crate::sim::build_site::GroundAdmission::Water {
                 continue;
             }
-            let held = crate::sim::build_site::cell_holds_structure(sim, &cells, identity);
+            let held = crate::sim::build_site::cell_holds_structure(sim, rules, &cells, identity);
             let allowed = ground == crate::sim::build_site::GroundAdmission::Allowed && !held;
             if allowed {
                 area.allowed.push(build_area_cell(&cells, coord, true));

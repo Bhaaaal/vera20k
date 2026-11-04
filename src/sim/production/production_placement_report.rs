@@ -113,7 +113,7 @@ pub fn build_area_report(
             coord.1,
             area_state(&allowed, &blocked, coord),
             ground_name(ground),
-            if cell_holds_structure(sim, &cells, identity) {
+            if cell_holds_structure(sim, rules, &cells, identity) {
                 "yes"
             } else {
                 "no"
