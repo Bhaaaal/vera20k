@@ -11,6 +11,12 @@ The preview needs three switches at once: the rules global
 ShowPlacementPreview=yes`, and the building type's own `PlacementPreview=yes`
 (default yes).
 
+VERA's own default for the rules global is **yes**, unlike Phobos' source
+default of no: the module only compiles behind `--features phobos`, a build
+that exists to offer the preview, and a rules layer that wants it off says
+`[AudioVisual] PlacementPreview=no`. Nothing else about the three switches
+changes, so the extension's own data keeps working as it always did.
+
 ```ini
 [Phobos]                          ; RA2MD.INI, imported into VERA.INI
 ShowPlacementPreview=yes          ; source default yes
