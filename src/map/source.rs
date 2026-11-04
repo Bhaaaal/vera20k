@@ -255,7 +255,8 @@ fn expand_map_ini_with_options(
     strict: bool,
     logical_name: Option<&str>,
 ) -> Result<IniFile> {
-    if !(crate::rules::ARES_ENABLED || crate::rules::PHOBOS_ENABLED) {
+    if !(crate::rules::ARES_ENABLED || crate::rules::PHOBOS_ENABLED || crate::rules::VERAX_ENABLED)
+    {
         return Ok(ini);
     }
     let name = match source {

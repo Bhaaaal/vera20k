@@ -84,9 +84,21 @@ coordinate, exactly where the retail `UseLineTrail` ring anchors.
 regression test reads: two wing-tip trails at `±90` leptons of lateral offset and
 one exhaust trail `80` leptons behind the hull. Rules type `[ORCA]` declares
 `Image=FALC`, so the list lives in ART section `[FALC]`; FALC is a voxel
-aircraft, so the wing anchors follow its Fly pitch and roll. Paste those sections
-into `artmd.ini` (the ART document the game folder reads) and build with
-`--features verax` to see it in play.
+aircraft, so the wing anchors follow its Fly pitch and roll.
+
+A VeraX build reads the Phobos `$Include` directive, so a fragment file is
+enough and no full `artmd.ini` replacement is needed:
+
+```ini
+; artmd.ini
+[$Include]
+0=verax_trails.ini
+```
+
+Copy `tests/fixtures/ini/verax_trails_art_example.ini` beside it as
+`verax_trails.ini`, build with `--features verax` and the Intruder draws the
+trails. As in Phobos, a listed fragment that is missing is fatal, so keep the
+file present; `[#include]` (Ares) works instead in an `ares` build.
 
 ## Drawing
 

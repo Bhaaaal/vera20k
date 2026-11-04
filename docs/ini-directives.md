@@ -2,11 +2,13 @@
 
 VERA expands includes in its existing INI source-selection path. Ares
 `[#include]` is compiled in with `--features ares`; Phobos `[$Include]` is
-compiled in with `--features phobos`. The default build treats both as ordinary,
-unused INI content. These are extension directives, not native YR syntax. Files
-without directives keep their native parsed representation, duplicate-section
-behavior, content hash and saved encoding. The raw `IniFile` byte parser and
-deserializer never load other files.
+compiled in with `--features phobos`. A `--features verax` build selects the same
+Phobos `$` dialect without the Phobos capability, so a VeraX-only build can read
+a fragment file and keeps Phobos's fatal missing-file policy. The default build
+treats both directives as ordinary, unused INI content. These are extension
+directives, not native YR syntax. Files without directives keep their native
+parsed representation, duplicate-section behavior, content hash and saved
+encoding. The raw `IniFile` byte parser and deserializer never load other files.
 
 The `$Inherits` section-copy policy below is the ra2-mono adaptation credited in
 [Source mapping](#source-mapping), not an Ares or Phobos claim; Phobos's own
@@ -26,10 +28,11 @@ Strength=250
 
 - With `--features phobos`, a document's `[$Include]` runs and takes over from
   its `[#include]`, as Phobos `-Include` does by restoring the vanilla bytes at
-  the Ares hooks (gamemd `0x474200`/`0x474314`). With `--features ares`, a
-  document without `[$Include]` expands its `[#include]`, in a combined build
-  too: VERA has no `-Include` launch switch, while natively one launch runs one
-  dialect.
+  the Ares hooks (gamemd `0x474200`/`0x474314`). A `--features verax` build
+  selects the same `$` dialect, so a VeraX-only build behaves like a Phobos build
+  for `[$Include]`. With `--features ares`, a document without `[$Include]`
+  expands its `[#include]`, in a combined build too: VERA has no `-Include`
+  launch switch, while natively one launch runs one dialect.
 - Include lists are read in stored entry order, as Ares walks them with
   `INIClass::GetKeyName` (`0x00526CC0`). Phobos iterates the section's
   `EntryIndex`, gamemd's CRC lookup index; VERA keeps stored order for it too.

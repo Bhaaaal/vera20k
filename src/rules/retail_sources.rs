@@ -49,8 +49,12 @@ enum OptionalIniSelection {
     SelectionFailed(String),
 }
 
+/// Select one physical INI and expand its include dialect when the build has a
+/// directive capability. A VeraX build selects the Phobos `$Include` dialect
+/// (`DirectiveOptions::production`), so a fragment file works without the
+/// Phobos capability.
 pub fn select_ini(assets: &AssetManager, name: &str) -> Result<SelectedIni, String> {
-    if crate::rules::ARES_ENABLED || crate::rules::PHOBOS_ENABLED {
+    if crate::rules::ARES_ENABLED || crate::rules::PHOBOS_ENABLED || crate::rules::VERAX_ENABLED {
         select_ini_with_options(assets, name, DirectiveOptions::production())
     } else {
         select_physical_ini(assets, name)
