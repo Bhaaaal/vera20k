@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::assets::audio_bag::AudioIndex;
@@ -449,6 +449,17 @@ impl AssetManager {
                 detail,
             })?;
         log::info!("Selected INI roots: {:?}", self.ini_roots);
+        Ok(self)
+    }
+
+    /// Add project-owned, read-only loose resources ahead of the retail root.
+    /// Relative names are constrained to each supplied root; no host path is exposed.
+    pub fn with_mod_dirs(mut self, mod_dirs: &[PathBuf]) -> Result<Self, AssetError> {
+        // Earlier configuration entries win, so merge in reverse.
+        for root in mod_dirs.iter().rev() {
+            let files = Self::open_mod_root(root)?;
+            self.loose_files.extend(files);
+        }
         Ok(self)
     }
 
@@ -1611,6 +1622,50 @@ impl AssetManager {
         Ok(files)
     }
 
+    fn open_mod_root(root: &Path) -> Result<HashMap<String, LooseAsset>, AssetError> {
+        let mut files = HashMap::new();
+        let mut pending = vec![root.to_path_buf()];
+        while let Some(directory) = pending.pop() {
+            for entry in crate::util::file_system::read_dir(&directory)? {
+                let entry = entry?;
+                let path = entry.path();
+                if crate::util::file_system::is_dir(&path) {
+                    pending.push(path);
+                    continue;
+                }
+                if !crate::util::file_system::is_file(&path) {
+                    continue;
+                }
+                let Ok(relative) = path.strip_prefix(root) else {
+                    continue;
+                };
+                let Some(relative) = relative.to_str().and_then(loose_lookup_key) else {
+                    continue;
+                };
+                let source_name = format!("mod:{}", path.display());
+                files.insert(
+                    relative,
+                    LooseAsset {
+                        path: path.clone(),
+                        source_name: source_name.clone(),
+                        bytes: OnceLock::new(),
+                    },
+                );
+                // Image= names are flat; accept a unique basename from assets/ too.
+                if let Some(name) = path.file_name().and_then(OsStr::to_str) {
+                    files
+                        .entry(name.to_ascii_lowercase())
+                        .or_insert_with(|| LooseAsset {
+                            path: path.clone(),
+                            source_name,
+                            bytes: OnceLock::new(),
+                        });
+                }
+            }
+        }
+        Ok(files)
+    }
+
     fn loose_asset(&self, name: &str) -> Option<&LooseAsset> {
         let key = loose_lookup_key(name)?;
         self.loose_files.get(&key)
@@ -1648,15 +1703,21 @@ fn archive_name_matches(stored_name: &str, requested_name: &str) -> bool {
 
 fn loose_lookup_key(name: &str) -> Option<String> {
     let path = Path::new(name);
-    if path
-        .parent()
-        .is_some_and(|parent| !parent.as_os_str().is_empty())
+    if path.is_absolute()
+        || path
+            .components()
+            .any(|part| matches!(part, Component::ParentDir | Component::Prefix(_)))
     {
         return None;
     }
-    path.file_name()
-        .and_then(OsStr::to_str)
-        .map(str::to_ascii_lowercase)
+    let parts: Vec<_> = path
+        .components()
+        .filter_map(|part| match part {
+            Component::Normal(name) => name.to_str(),
+            _ => None,
+        })
+        .collect();
+    (!parts.is_empty()).then(|| parts.join("/").to_ascii_lowercase())
 }
 
 /// Whether a retail directory listing keeps `path`: a regular file without the
