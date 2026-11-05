@@ -64,6 +64,8 @@ pub struct PathsConfig {
     /// MIX files (ra2.mix, language.mix, theme.mix) are loaded from here.
     /// Example: "C:/Program Files/EA Games/Command and Conquer Red Alert II"
     pub ra2_dir: PathBuf,
+    /// Read-only MOD resource roots, searched before loose retail files.
+    pub mod_dirs: Vec<PathBuf>,
     /// Writable VERA profile root, always outside the retail asset folder.
     settings_dir: PathBuf,
     /// Previous profile location, read only during the first VERA.INI import.
@@ -303,6 +305,11 @@ impl GameConfig {
         if config.paths.ra2_dir.is_relative() {
             config.paths.ra2_dir = directory.join(&config.paths.ra2_dir);
         }
+        for mod_dir in &mut config.paths.mod_dirs {
+            if mod_dir.is_relative() {
+                *mod_dir = directory.join(&*mod_dir);
+            }
+        }
         for path in [
             &mut config.paths.settings_dir,
             &mut config.paths.legacy_settings_dir,
@@ -326,6 +333,7 @@ impl GameConfig {
     fn parse(contents: &str) -> Result<Self> {
         let mut ra2_dir = None;
         let mut settings_dir = None;
+        let mut mod_dirs = Vec::new();
         let mut graphics = GraphicsConfig::default();
         let mut gameplay = GameplayConfig::default();
         let mut profile = ProfileConfig::default();
@@ -360,6 +368,8 @@ impl GameConfig {
                 ("paths", "settings_dir") => {
                     parse_string(value).map(|path| settings_dir = Some(PathBuf::from(path)))
                 }
+                ("paths", "mod_dirs") => parse_string_array(value)
+                    .map(|paths| mod_dirs = paths.into_iter().map(PathBuf::from).collect()),
                 ("graphics", "extra_animations") => {
                     parse_bool(value).map(|on| graphics.extra_animations = on)
                 }
@@ -393,6 +403,7 @@ impl GameConfig {
             paths: PathsConfig {
                 legacy_settings_dir: settings_dir.clone().unwrap_or_else(|| ra2_dir.clone()),
                 ra2_dir,
+                mod_dirs,
                 settings_dir: settings_dir.map_or_else(default_settings_dir, Ok)?,
             },
             graphics,
@@ -407,6 +418,7 @@ impl GameConfig {
             paths: PathsConfig {
                 legacy_settings_dir: ra2_dir.clone(),
                 ra2_dir,
+                mod_dirs: Vec::new(),
                 settings_dir: default_settings_dir()?,
             },
             graphics: GraphicsConfig::default(),
@@ -539,6 +551,21 @@ fn parse_string(value: &str) -> Result<String> {
         }
     }
     bail!("unterminated string")
+}
+
+/// Small TOML string-array subset for read-only MOD roots.
+fn parse_string_array(value: &str) -> Result<Vec<String>> {
+    let body = value
+        .trim()
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+        .context("expected a string array")?;
+    if body.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    body.split(',')
+        .map(|item| parse_string(item.trim()))
+        .collect()
 }
 
 fn parse_bool(value: &str) -> Result<bool> {
