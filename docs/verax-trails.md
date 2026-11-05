@@ -40,7 +40,7 @@ ZOrder=0            ; lower draws first (behind)
 | `[VeraTrailTypes]` | ART | Ordered catalog: each key's value names a section that holds one style |
 | `FLH=` | catalog entry | Body-space offset through the native `GetFLH` transform. Ignored on a projectile, whose anchor is the bullet coordinate itself |
 | `Color=` / `Color2=` | catalog entry | Head colour and optional tail colour; a segment's colour interpolates by its older sample's age. A malformed or absent colour keeps the previous value |
-| `Width=` | catalog entry | Line width in logical pixels, clamped to 1–8. One pixel row each |
+| `Width=` | catalog entry | Trail width in logical pixels, clamped to 1–8. A continuous band, not a row count: every pixel row its center covers is filled |
 | `FadeDuration=` | catalog entry | A sample lives this long, in milliseconds, then is dropped; clamped to 1–4000 |
 | `SegmentLength=` | catalog entry | Minimum anchor movement that appends a sample, clamped to 0–2000. `0` appends on any movement, like the retail trail |
 | `Alpha=` | catalog entry | Head strength, clamped to 0–255. Strength falls linearly with each sample's age |
@@ -102,12 +102,22 @@ file present; `[#include]` (Ares) works instead in an `ares` build.
 
 ## Drawing
 
-Each segment becomes one `SurfaceLine` per pixel row of its width: rows are
-shifted along the segment's normal, direction-independent. Strength is the head
-`Alpha=` minus the segment's newer-sample age; segments below the retail A gate
-(8) are skipped. Custom trails draw after the retail `LineTrail` phase and before
-RadBeam, in `ZOrder=` order. A segment whose ends are concealed by translucent
-fog is not drawn.
+`Width=` is a continuous logical-pixel band, not a row count: a segment fills
+every pixel row whose center the band covers, one horizontal run per row. An even
+width keeps the middle row, and a diagonal stays unbroken instead of becoming a
+set of parallel stepped lines. Each run is an ordinary `SurfaceLine`, so it goes
+through the same `Mix` operation and keeps the native fog, depth and draw-order
+behavior. `Width=1` keeps the single-pixel walk unchanged.
+
+Two samples share an endpoint, where both bands cover the same pixels. The older
+segment keeps them and the newer one fills only what was left, so no pixel takes
+one trail's `Mix` twice. Ends are flat, which can leave a one-pixel notch on the
+outside of a sharp turn.
+
+Strength is the head `Alpha=` minus the segment's newer-sample age; segments below
+the retail A gate (8) are skipped. Custom trails draw after the retail `LineTrail`
+phase and before RadBeam, in `ZOrder=` order. A segment whose ends are concealed
+by translucent fog is not drawn.
 
 ## A projectile with a custom list drops its retail trail
 
