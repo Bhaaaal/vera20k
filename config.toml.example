@@ -5,6 +5,9 @@
 # Point this to your Red Alert 2: Yuri's Revenge installation directory.
 # The engine reads .mix files directly from here (ra2.mix, language.mix, etc.)
 ra2_dir = "C:/Westwood/RA2"
+# Optional read-only project resource roots. Earlier entries override later ones
+# and the retail directory; use [$Include] paths such as "rules/units.ini".
+# mod_dirs = ["E:/my-mod"]
 # Optional VERA.INI location (defaults to VERA20k's user data folder).
 # Relative paths are resolved beside this config file, outside the game folder.
 # settings_dir = "."
@@ -14,6 +17,11 @@ ra2_dir = "C:/Westwood/RA2"
 # Default yr preserves the normal Yuri's Revenge path. mo requires all three MO
 # roots; auto accepts exactly one complete set with no partial alternate set.
 profile = "yr" # yr | mo | auto | custom
+# A MOD wrapper can compose the originals from MIX with project files:
+# profile = "custom"
+# rules = "mod-rules.ini"
+# art = "mod-art.ini"
+# ai = "mod-ai.ini"
 # With profile = "custom", specify all three logical INI basenames:
 # rules = "my-rules.ini"
 # art = "my-art.ini"
