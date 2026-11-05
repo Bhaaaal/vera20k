@@ -570,6 +570,7 @@ impl App {
         let mut startup_asset_manager = game_config.as_ref().and_then(|config| {
             startup_asset_or_error(
                 AssetManager::new(&config.paths.ra2_dir, startup_options.media_archive_mode)
+                    .and_then(|assets| assets.with_mod_dirs(&config.paths.mod_dirs))
                     .and_then(|assets| assets.with_ini_roots(&config.ini))
                     .context("Could not load the game archives"),
                 &mut main_menu_shell_error,
