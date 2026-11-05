@@ -686,7 +686,7 @@ pub(crate) fn render_game(
             }
             let camera_px = [camera[0] as i32, camera[1] as i32];
             trails.end_frame(now_ms);
-            handoff = trails.draws(now_ms, camera_px, detail_level, |point| {
+            handoff = trails.draws(now_ms, camera_px, viewport.clip, detail_level, |point| {
                 effect_hidden(point[0], point[1])
             });
         }

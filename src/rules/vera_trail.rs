@@ -15,7 +15,7 @@ use crate::rules::ini_parser::{IniFile, IniSection};
 
 /// At most this many trails draw for one type, whatever its list says.
 pub const MAX_TRAILS: usize = 12;
-/// Widest line the parallel-row expansion accepts, in logical pixels.
+/// Widest trail band the presentation draws, in logical pixels.
 pub const MAX_WIDTH: u8 = 8;
 /// Longest fade the ring keeps samples for, in milliseconds.
 const MAX_FADE_MS: i32 = 4000;
